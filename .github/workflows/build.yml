@@ -722,7 +722,7 @@ jobs:
 
               private var footer: some View {
                   Text(
-                      "SIMULATED CREDITS ONLY â¢ NO REAL MONEY â¢ NO CASH VALUE"
+                      "SIMULATED CREDITS ONLY - NO REAL MONEY - NO CASH VALUE"
                   )
                   .font(
                       .system(
@@ -953,11 +953,11 @@ jobs:
 
                       HStack(spacing: 5) {
                           payout("7", 25)
-                          payout("â¦", 15)
-                          payout("ð", 10)
-                          payout("â", 8)
-                          payout("â", 6)
-                          payout("â¡", 4)
+                          payout("D", 15)
+                          payout("B", 10)
+                          payout("C", 8)
+                          payout("S", 6)
+                          payout("L", 4)
                       }
                   }
               }
