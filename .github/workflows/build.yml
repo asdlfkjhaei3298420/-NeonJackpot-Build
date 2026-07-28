@@ -154,23 +154,6 @@ jobs:
                   }
               }
 
-              var name: String {
-                  switch self {
-                  case .seven:
-                      return "Seven"
-                  case .diamond:
-                      return "Diamond"
-                  case .bell:
-                      return "Bell"
-                  case .cherry:
-                      return "Cherry"
-                  case .star:
-                      return "Star"
-                  case .bolt:
-                      return "Bolt"
-                  }
-              }
-
               var multiplier: Int {
                   switch self {
                   case .seven:
@@ -219,6 +202,7 @@ jobs:
               @Published var isSpinning = false
               @Published var lastWin = 0
               @Published var message = "READY TO PLAY"
+
               @Published var totalSpins: Int {
                   didSet {
                       UserDefaults.standard.set(totalSpins, forKey: "totalSpins")
@@ -252,7 +236,9 @@ jobs:
 
               func spin() async {
                   guard canSpin else {
-                      message = balance < bet ? "NOT ENOUGH CREDITS" : "PLEASE WAIT"
+                      message = balance < bet
+                          ? "NOT ENOUGH CREDITS"
+                          : "PLEASE WAIT"
                       return
                   }
 
@@ -268,8 +254,12 @@ jobs:
                           randomSymbol()
                       ]
 
-                      let delay = 45_000_000 + UInt64(frame * 8_000_000)
-                      try? await Task.sleep(nanoseconds: delay)
+                      let delay =
+                          45_000_000 + UInt64(frame * 8_000_000)
+
+                      try? await Task.sleep(
+                          nanoseconds: delay
+                      )
                   }
 
                   reels = [
@@ -327,7 +317,9 @@ jobs:
                       return bet * first.multiplier
                   }
 
-                  if first == second || second == third || first == third {
+                  if first == second ||
+                      second == third ||
+                      first == third {
                       let matchingSymbol: SlotSymbol
 
                       if first == second || first == third {
@@ -336,18 +328,23 @@ jobs:
                           matchingSymbol = second
                       }
 
-                      return max(bet, bet * matchingSymbol.multiplier / 4)
+                      return max(
+                          bet,
+                          bet * matchingSymbol.multiplier / 4
+                      )
                   }
 
                   return 0
               }
 
               private func randomSymbol() -> SlotSymbol {
-                  let totalWeight = SlotSymbol.allCases.reduce(0) {
-                      $0 + $1.weight
-                  }
+                  let totalWeight =
+                      SlotSymbol.allCases.reduce(0) {
+                          $0 + $1.weight
+                      }
 
-                  var roll = Int.random(in: 1...totalWeight)
+                  var roll =
+                      Int.random(in: 1...totalWeight)
 
                   for symbol in SlotSymbol.allCases {
                       roll -= symbol.weight
@@ -408,7 +405,9 @@ jobs:
                   .onAppear {
                       withAnimation(
                           .easeInOut(duration: 1.1)
-                          .repeatForever(autoreverses: true)
+                          .repeatForever(
+                              autoreverses: true
+                          )
                       ) {
                           glow.toggle()
                       }
@@ -449,7 +448,9 @@ jobs:
                               )
                           )
                           .shadow(
-                              color: .pink.opacity(glow ? 0.95 : 0.35),
+                              color: .pink.opacity(
+                                  glow ? 0.95 : 0.35
+                              ),
                               radius: glow ? 20 : 7
                           )
                           .onTapGesture {
@@ -460,23 +461,33 @@ jobs:
                                   showingAdmin = true
 
                                   UINotificationFeedbackGenerator()
-                                      .notificationOccurred(.warning)
+                                      .notificationOccurred(
+                                          .warning
+                                      )
                               }
                           }
 
                       Text("ARCADE SLOT SIMULATOR")
                           .font(.caption.bold())
                           .tracking(2.5)
-                          .foregroundStyle(.white.opacity(0.55))
+                          .foregroundStyle(
+                              .white.opacity(0.55)
+                          )
                   }
               }
 
               private var slotCabinet: some View {
                   VStack(spacing: 14) {
                       Text(game.message)
-                          .font(.headline.monospaced().bold())
+                          .font(
+                              .headline
+                              .monospaced()
+                              .bold()
+                          )
                           .foregroundStyle(
-                              game.lastWin > 0 ? .yellow : .white.opacity(0.85)
+                              game.lastWin > 0
+                                  ? Color.yellow
+                                  : Color.white.opacity(0.85)
                           )
                           .frame(maxWidth: .infinity)
                           .padding(.vertical, 9)
@@ -487,36 +498,42 @@ jobs:
 
                       HStack(spacing: 10) {
                           ForEach(
-                              Array(game.reels.enumerated()),
+                              Array(
+                                  game.reels.enumerated()
+                              ),
                               id: \.offset
                           ) { index, symbol in
                               ReelView(
                                   symbol: symbol,
                                   spinning: game.isSpinning,
-                                  delay: Double(index) * 0.08
+                                  delay:
+                                      Double(index) * 0.08
                               )
                           }
                       }
                       .padding(12)
                       .background(
-                          RoundedRectangle(cornerRadius: 23)
-                              .fill(.black.opacity(0.58))
-                              .stroke(
-                                  LinearGradient(
-                                      colors: [
-                                          .cyan,
-                                          .purple,
-                                          .pink
-                                      ],
-                                      startPoint: .topLeading,
-                                      endPoint: .bottomTrailing
-                                  ),
-                                  lineWidth: 3
-                              )
-                              .shadow(
-                                  color: .purple.opacity(0.75),
-                                  radius: 20
-                              )
+                          RoundedRectangle(
+                              cornerRadius: 23
+                          )
+                          .fill(.black.opacity(0.58))
+                          .stroke(
+                              LinearGradient(
+                                  colors: [
+                                      .cyan,
+                                      .purple,
+                                      .pink
+                                  ],
+                                  startPoint: .topLeading,
+                                  endPoint: .bottomTrailing
+                              ),
+                              lineWidth: 3
+                          )
+                          .shadow(
+                              color:
+                                  .purple.opacity(0.75),
+                              radius: 20
+                          )
                       )
 
                       PayoutView(bet: game.bet)
@@ -524,11 +541,17 @@ jobs:
                   .padding(16)
                   .background(
                       .ultraThinMaterial,
-                      in: RoundedRectangle(cornerRadius: 28)
+                      in: RoundedRectangle(
+                          cornerRadius: 28
+                      )
                   )
                   .overlay {
-                      RoundedRectangle(cornerRadius: 28)
-                          .stroke(.white.opacity(0.12))
+                      RoundedRectangle(
+                          cornerRadius: 28
+                      )
+                      .stroke(
+                          .white.opacity(0.12)
+                      )
                   }
               }
 
@@ -537,38 +560,62 @@ jobs:
                       Text("SELECT BET")
                           .font(.caption.bold())
                           .tracking(3)
-                          .foregroundStyle(.white.opacity(0.6))
+                          .foregroundStyle(
+                              .white.opacity(0.6)
+                          )
 
                       HStack(spacing: 7) {
-                          ForEach(game.availableBets, id: \.self) { amount in
+                          ForEach(
+                              game.availableBets,
+                              id: \.self
+                          ) { amount in
                               Button {
                                   game.bet = amount
 
-                                  UIImpactFeedbackGenerator(style: .light)
-                                      .impactOccurred()
+                                  UIImpactFeedbackGenerator(
+                                      style: .light
+                                  )
+                                  .impactOccurred()
                               } label: {
                                   Text("$\(amount)")
-                                      .font(.subheadline.bold())
-                                      .frame(maxWidth: .infinity)
-                                      .padding(.vertical, 11)
+                                      .font(
+                                          .subheadline.bold()
+                                      )
+                                      .frame(
+                                          maxWidth:
+                                              .infinity
+                                      )
+                                      .padding(
+                                          .vertical,
+                                          11
+                                      )
                                       .foregroundStyle(
-                                          game.bet == amount ?
-                                              .black :
-                                              .white
+                                          game.bet == amount
+                                              ? Color.black
+                                              : Color.white
                                       )
                                       .background(
-                                          game.bet == amount ?
-                                              AnyShapeStyle(Color.cyan) :
-                                              AnyShapeStyle(
-                                                  Color.white.opacity(0.08)
+                                          game.bet == amount
+                                              ? AnyShapeStyle(
+                                                  Color.cyan
+                                              )
+                                              : AnyShapeStyle(
+                                                  Color.white
+                                                      .opacity(
+                                                          0.08
+                                                      )
                                               ),
-                                          in: RoundedRectangle(
-                                              cornerRadius: 12
-                                          )
+                                          in:
+                                              RoundedRectangle(
+                                                  cornerRadius:
+                                                      12
+                                              )
                                       )
                               }
                               .buttonStyle(.plain)
-                              .disabled(game.isSpinning)
+                              .disabled(
+                                  game.isSpinning
+                              )
                           }
                       }
                   }
@@ -576,35 +623,44 @@ jobs:
 
               private var spinButton: some View {
                   Button {
-                      UIImpactFeedbackGenerator(style: .heavy)
-                          .impactOccurred()
+                      UIImpactFeedbackGenerator(
+                          style: .heavy
+                      )
+                      .impactOccurred()
 
                       Task {
                           await game.spin()
 
                           if game.lastWin > 0 {
                               UINotificationFeedbackGenerator()
-                                  .notificationOccurred(.success)
+                                  .notificationOccurred(
+                                      .success
+                                  )
                           }
                       }
                   } label: {
                       HStack(spacing: 12) {
                           Image(
-                              systemName: game.isSpinning ?
-                                  "arrow.triangle.2.circlepath" :
-                                  "play.fill"
+                              systemName:
+                                  game.isSpinning
+                                  ? "arrow.triangle.2.circlepath"
+                                  : "play.fill"
                           )
                           .symbolEffect(
                               .rotate,
-                              isActive: game.isSpinning
+                              isActive:
+                                  game.isSpinning
                           )
 
                           Text(
-                              game.isSpinning ?
-                                  "SPINNING" :
-                                  "SPIN"
+                              game.isSpinning
+                                  ? "SPINNING"
+                                  : "SPIN"
                           )
-                          .font(.title2.black())
+                          .font(
+                              .title2
+                              .weight(.black)
+                          )
                           .tracking(4)
                       }
                       .frame(maxWidth: .infinity)
@@ -612,25 +668,29 @@ jobs:
                       .foregroundStyle(.black)
                       .background(
                           LinearGradient(
-                              colors: game.canSpin ?
-                                  [
+                              colors:
+                                  game.canSpin
+                                  ? [
                                       .yellow,
                                       .orange,
                                       .pink
-                                  ] :
-                                  [
+                                  ]
+                                  : [
                                       .gray,
                                       .gray.opacity(0.7)
                                   ],
                               startPoint: .leading,
                               endPoint: .trailing
                           ),
-                          in: RoundedRectangle(cornerRadius: 19)
+                          in: RoundedRectangle(
+                              cornerRadius: 19
+                          )
                       )
                       .shadow(
-                          color: game.canSpin ?
-                              .orange.opacity(0.7) :
-                              .clear,
+                          color:
+                              game.canSpin
+                              ? .orange.opacity(0.7)
+                              : .clear,
                           radius: 18
                       )
                   }
@@ -642,7 +702,8 @@ jobs:
                   HStack {
                       Label(
                           "\(game.totalSpins) spins",
-                          systemImage: "arrow.2.circlepath"
+                          systemImage:
+                              "arrow.2.circlepath"
                       )
 
                       Spacer()
@@ -653,7 +714,9 @@ jobs:
                       )
                   }
                   .font(.caption.bold())
-                  .foregroundStyle(.white.opacity(0.65))
+                  .foregroundStyle(
+                      .white.opacity(0.65)
+                  )
                   .padding(.horizontal, 4)
               }
 
@@ -661,10 +724,17 @@ jobs:
                   Text(
                       "SIMULATED CREDITS ONLY • NO REAL MONEY • NO CASH VALUE"
                   )
-                  .font(.system(size: 10, weight: .bold))
+                  .font(
+                      .system(
+                          size: 10,
+                          weight: .bold
+                      )
+                  )
                   .tracking(1)
                   .multilineTextAlignment(.center)
-                  .foregroundStyle(.white.opacity(0.38))
+                  .foregroundStyle(
+                      .white.opacity(0.38)
+                  )
                   .padding(.top, 4)
               }
           }
@@ -679,20 +749,27 @@ jobs:
 
               var body: some View {
                   ZStack {
-                      RoundedRectangle(cornerRadius: 17)
-                          .fill(
-                              LinearGradient(
-                                  colors: [
-                                      .white.opacity(0.98),
-                                      .white.opacity(0.75)
-                                  ],
-                                  startPoint: .top,
-                                  endPoint: .bottom
-                              )
+                      RoundedRectangle(
+                          cornerRadius: 17
+                      )
+                      .fill(
+                          LinearGradient(
+                              colors: [
+                                  .white.opacity(0.98),
+                                  .white.opacity(0.75)
+                              ],
+                              startPoint: .top,
+                              endPoint: .bottom
                           )
+                      )
 
-                      RoundedRectangle(cornerRadius: 17)
-                          .stroke(.cyan.opacity(0.65), lineWidth: 2)
+                      RoundedRectangle(
+                          cornerRadius: 17
+                      )
+                      .stroke(
+                          .cyan.opacity(0.65),
+                          lineWidth: 2
+                      )
 
                       if symbol == .seven {
                           Text("7")
@@ -715,9 +792,18 @@ jobs:
                                   )
                               )
                       } else {
-                          Image(systemName: symbol.icon)
-                              .font(.system(size: 45, weight: .black))
-                              .foregroundStyle(symbolColor)
+                          Image(
+                              systemName: symbol.icon
+                          )
+                          .font(
+                              .system(
+                                  size: 45,
+                                  weight: .black
+                              )
+                          )
+                          .foregroundStyle(
+                              symbolColor
+                          )
                       }
                   }
                   .frame(maxWidth: .infinity)
@@ -731,9 +817,15 @@ jobs:
                       )
                   )
                   .scaleEffect(scale)
-                  .onChange(of: spinning) { _, newValue in
+                  .onChange(of: spinning) {
+                      _, newValue in
+
                       guard newValue else {
-                          withAnimation(.spring(response: 0.3)) {
+                          withAnimation(
+                              .spring(
+                                  response: 0.3
+                              )
+                          ) {
                               rotation = 0
                               scale = 1
                           }
@@ -743,7 +835,9 @@ jobs:
 
                       withAnimation(
                           .linear(duration: 0.32)
-                          .repeatForever(autoreverses: false)
+                          .repeatForever(
+                              autoreverses: false
+                          )
                           .delay(delay)
                       ) {
                           rotation += 360
@@ -751,27 +845,41 @@ jobs:
 
                       withAnimation(
                           .easeInOut(duration: 0.18)
-                          .repeatForever(autoreverses: true)
+                          .repeatForever(
+                              autoreverses: true
+                          )
                       ) {
                           scale = 0.9
                       }
                   }
               }
 
-              private var symbolColor: some ShapeStyle {
+              private var symbolColor: AnyShapeStyle {
                   switch symbol {
                   case .seven:
-                      return AnyShapeStyle(Color.red)
+                      return AnyShapeStyle(
+                          Color.red
+                      )
                   case .diamond:
-                      return AnyShapeStyle(Color.cyan)
+                      return AnyShapeStyle(
+                          Color.cyan
+                      )
                   case .bell:
-                      return AnyShapeStyle(Color.yellow)
+                      return AnyShapeStyle(
+                          Color.yellow
+                      )
                   case .cherry:
-                      return AnyShapeStyle(Color.red)
+                      return AnyShapeStyle(
+                          Color.red
+                      )
                   case .star:
-                      return AnyShapeStyle(Color.purple)
+                      return AnyShapeStyle(
+                          Color.purple
+                      )
                   case .bolt:
-                      return AnyShapeStyle(Color.orange)
+                      return AnyShapeStyle(
+                          Color.orange
+                      )
                   }
               }
           }
@@ -782,7 +890,10 @@ jobs:
               let icon: String
 
               var body: some View {
-                  VStack(alignment: .leading, spacing: 8) {
+                  VStack(
+                      alignment: .leading,
+                      spacing: 8
+                  ) {
                       HStack {
                           Image(systemName: icon)
                               .foregroundStyle(.cyan)
@@ -790,7 +901,9 @@ jobs:
                           Text(title)
                               .font(.caption.bold())
                               .tracking(1.2)
-                              .foregroundStyle(.white.opacity(0.58))
+                              .foregroundStyle(
+                                  .white.opacity(0.58)
+                              )
 
                           Spacer()
                       }
@@ -811,11 +924,17 @@ jobs:
                   .frame(maxWidth: .infinity)
                   .background(
                       .ultraThinMaterial,
-                      in: RoundedRectangle(cornerRadius: 18)
+                      in: RoundedRectangle(
+                          cornerRadius: 18
+                      )
                   )
                   .overlay {
-                      RoundedRectangle(cornerRadius: 18)
-                          .stroke(.white.opacity(0.12))
+                      RoundedRectangle(
+                          cornerRadius: 18
+                      )
+                      .stroke(
+                          .white.opacity(0.12)
+                      )
                   }
               }
           }
@@ -828,7 +947,9 @@ jobs:
                       Text("THREE MATCH PAYOUT")
                           .font(.caption2.bold())
                           .tracking(2)
-                          .foregroundStyle(.white.opacity(0.55))
+                          .foregroundStyle(
+                              .white.opacity(0.55)
+                          )
 
                       HStack(spacing: 5) {
                           payout("7", 25)
@@ -850,14 +971,21 @@ jobs:
                           .font(.headline.bold())
 
                       Text("$\(bet * multiplier)")
-                          .font(.system(size: 9, weight: .bold))
+                          .font(
+                              .system(
+                                  size: 9,
+                                  weight: .bold
+                              )
+                          )
                           .foregroundStyle(.yellow)
                   }
                   .frame(maxWidth: .infinity)
                   .padding(.vertical, 7)
                   .background(
                       .white.opacity(0.06),
-                      in: RoundedRectangle(cornerRadius: 8)
+                      in: RoundedRectangle(
+                          cornerRadius: 8
+                      )
                   )
               }
           }
@@ -882,8 +1010,13 @@ jobs:
                       )
 
                       Circle()
-                          .fill(.purple.opacity(0.25))
-                          .frame(width: 330, height: 330)
+                          .fill(
+                              .purple.opacity(0.25)
+                          )
+                          .frame(
+                              width: 330,
+                              height: 330
+                          )
                           .blur(radius: 60)
                           .offset(
                               x: move ? 120 : -100,
@@ -891,8 +1024,13 @@ jobs:
                           )
 
                       Circle()
-                          .fill(.cyan.opacity(0.19))
-                          .frame(width: 280, height: 280)
+                          .fill(
+                              .cyan.opacity(0.19)
+                          )
+                          .frame(
+                              width: 280,
+                              height: 280
+                          )
                           .blur(radius: 65)
                           .offset(
                               x: move ? -120 : 130,
@@ -900,8 +1038,13 @@ jobs:
                           )
 
                       Circle()
-                          .fill(.pink.opacity(0.18))
-                          .frame(width: 230, height: 230)
+                          .fill(
+                              .pink.opacity(0.18)
+                          )
+                          .frame(
+                              width: 230,
+                              height: 230
+                          )
                           .blur(radius: 55)
                           .offset(
                               x: move ? 80 : -120,
@@ -911,7 +1054,9 @@ jobs:
                   .onAppear {
                       withAnimation(
                           .easeInOut(duration: 7)
-                          .repeatForever(autoreverses: true)
+                          .repeatForever(
+                              autoreverses: true
+                          )
                       ) {
                           move.toggle()
                       }
@@ -920,13 +1065,17 @@ jobs:
           }
 
           struct AdminView: View {
-              @EnvironmentObject private var game: GameModel
-              @Environment(\.dismiss) private var dismiss
+              @EnvironmentObject private var game:
+                  GameModel
+
+              @Environment(\.dismiss)
+              private var dismiss
 
               @State private var pin = ""
               @State private var unlocked = false
               @State private var error = false
-              @State private var showingResetConfirmation = false
+              @State private var showingResetConfirmation =
+                  false
 
               var body: some View {
                   NavigationStack {
@@ -940,11 +1089,16 @@ jobs:
                               login
                           }
                       }
-                      .navigationTitle("Admin Console")
-                      .navigationBarTitleDisplayMode(.inline)
+                      .navigationTitle(
+                          "Admin Console"
+                      )
+                      .navigationBarTitleDisplayMode(
+                          .inline
+                      )
                       .toolbar {
                           ToolbarItem(
-                              placement: .topBarTrailing
+                              placement:
+                                  .topBarTrailing
                           ) {
                               Button("Done") {
                                   dismiss()
@@ -953,7 +1107,8 @@ jobs:
                       }
                       .alert(
                           "Reset all game data?",
-                          isPresented: $showingResetConfirmation
+                          isPresented:
+                              $showingResetConfirmation
                       ) {
                           Button(
                               "Cancel",
@@ -976,12 +1131,18 @@ jobs:
 
               private var login: some View {
                   VStack(spacing: 20) {
-                      Image(systemName: "lock.shield.fill")
-                          .font(.system(size: 55))
-                          .foregroundStyle(.cyan)
+                      Image(
+                          systemName:
+                              "lock.shield.fill"
+                      )
+                      .font(.system(size: 55))
+                      .foregroundStyle(.cyan)
 
                       Text("ADMIN ACCESS")
-                          .font(.title2.black())
+                          .font(
+                              .title2
+                              .weight(.black)
+                          )
                           .tracking(2)
 
                       SecureField(
@@ -990,20 +1151,27 @@ jobs:
                       )
                       .keyboardType(.numberPad)
                       .textContentType(.password)
-                      .multilineTextAlignment(.center)
+                      .multilineTextAlignment(
+                          .center
+                      )
                       .font(.title2.monospaced())
                       .padding()
                       .background(
                           .white.opacity(0.09),
-                          in: RoundedRectangle(cornerRadius: 15)
+                          in: RoundedRectangle(
+                              cornerRadius: 15
+                          )
                       )
                       .overlay {
-                          RoundedRectangle(cornerRadius: 15)
-                              .stroke(
-                                  error ?
-                                      Color.red :
-                                      Color.white.opacity(0.15)
-                              )
+                          RoundedRectangle(
+                              cornerRadius: 15
+                          )
+                          .stroke(
+                              error
+                                  ? Color.red
+                                  : Color.white
+                                      .opacity(0.15)
+                          )
                       }
 
                       Button {
@@ -1012,37 +1180,58 @@ jobs:
                               error = false
 
                               UINotificationFeedbackGenerator()
-                                  .notificationOccurred(.success)
+                                  .notificationOccurred(
+                                      .success
+                                  )
                           } else {
                               pin = ""
                               error = true
 
                               UINotificationFeedbackGenerator()
-                                  .notificationOccurred(.error)
+                                  .notificationOccurred(
+                                      .error
+                                  )
                           }
                       } label: {
                           Text("UNLOCK")
-                              .font(.headline.bold())
-                              .frame(maxWidth: .infinity)
+                              .font(
+                                  .headline.bold()
+                              )
+                              .frame(
+                                  maxWidth:
+                                      .infinity
+                              )
                               .padding()
-                              .foregroundStyle(.black)
+                              .foregroundStyle(
+                                  .black
+                              )
                               .background(
                                   .cyan,
-                                  in: RoundedRectangle(cornerRadius: 15)
+                                  in:
+                                      RoundedRectangle(
+                                          cornerRadius:
+                                              15
+                                      )
                               )
                       }
                       .buttonStyle(.plain)
 
                       if error {
                           Text("Incorrect PIN")
-                              .font(.caption.bold())
-                              .foregroundStyle(.red)
+                              .font(
+                                  .caption.bold()
+                              )
+                              .foregroundStyle(
+                                  .red
+                              )
                       }
                   }
                   .padding(24)
                   .background(
                       .ultraThinMaterial,
-                      in: RoundedRectangle(cornerRadius: 25)
+                      in: RoundedRectangle(
+                          cornerRadius: 25
+                      )
                   )
                   .padding(22)
               }
@@ -1050,13 +1239,21 @@ jobs:
               private var controls: some View {
                   ScrollView {
                       VStack(spacing: 18) {
-                          Image(systemName: "gearshape.2.fill")
-                              .font(.system(size: 50))
-                              .foregroundStyle(.cyan)
+                          Image(
+                              systemName:
+                                  "gearshape.2.fill"
+                          )
+                          .font(.system(size: 50))
+                          .foregroundStyle(.cyan)
 
-                          Text("GAME ADMINISTRATION")
-                              .font(.headline.black())
-                              .tracking(1.5)
+                          Text(
+                              "GAME ADMINISTRATION"
+                          )
+                          .font(
+                              .headline
+                              .weight(.black)
+                          )
+                          .tracking(1.5)
 
                           adminStatus
 
@@ -1064,36 +1261,63 @@ jobs:
                               game.resetBalance()
 
                               UINotificationFeedbackGenerator()
-                                  .notificationOccurred(.success)
+                                  .notificationOccurred(
+                                      .success
+                                  )
                           } label: {
                               Label(
                                   "Reset Balance to $1,000",
-                                  systemImage: "dollarsign.arrow.circlepath"
+                                  systemImage:
+                                      "dollarsign.arrow.circlepath"
                               )
-                              .font(.headline.bold())
-                              .frame(maxWidth: .infinity)
+                              .font(
+                                  .headline.bold()
+                              )
+                              .frame(
+                                  maxWidth:
+                                      .infinity
+                              )
                               .padding()
-                              .foregroundStyle(.black)
+                              .foregroundStyle(
+                                  .black
+                              )
                               .background(
                                   .green,
-                                  in: RoundedRectangle(cornerRadius: 15)
+                                  in:
+                                      RoundedRectangle(
+                                          cornerRadius:
+                                              15
+                                      )
                               )
                           }
                           .buttonStyle(.plain)
 
-                          Button(role: .destructive) {
-                              showingResetConfirmation = true
+                          Button(
+                              role: .destructive
+                          ) {
+                              showingResetConfirmation =
+                                  true
                           } label: {
                               Label(
                                   "Reset All Game Data",
-                                  systemImage: "trash.fill"
+                                  systemImage:
+                                      "trash.fill"
                               )
-                              .font(.headline.bold())
-                              .frame(maxWidth: .infinity)
+                              .font(
+                                  .headline.bold()
+                              )
+                              .frame(
+                                  maxWidth:
+                                      .infinity
+                              )
                               .padding()
                               .background(
                                   .red.opacity(0.2),
-                                  in: RoundedRectangle(cornerRadius: 15)
+                                  in:
+                                      RoundedRectangle(
+                                          cornerRadius:
+                                              15
+                                      )
                               )
                           }
                           .buttonStyle(.plain)
@@ -1102,8 +1326,12 @@ jobs:
                               "This application uses simulated credits only. It contains no purchases, deposits, withdrawals, prizes, or real-money wagering."
                           )
                           .font(.caption)
-                          .foregroundStyle(.white.opacity(0.55))
-                          .multilineTextAlignment(.center)
+                          .foregroundStyle(
+                              .white.opacity(0.55)
+                          )
+                          .multilineTextAlignment(
+                              .center
+                          )
                           .padding(.top, 6)
                       }
                       .padding(22)
@@ -1135,7 +1363,9 @@ jobs:
                   .padding(17)
                   .background(
                       .white.opacity(0.08),
-                      in: RoundedRectangle(cornerRadius: 18)
+                      in: RoundedRectangle(
+                          cornerRadius: 18
+                      )
                   )
               }
 
@@ -1145,12 +1375,18 @@ jobs:
               ) -> some View {
                   HStack {
                       Text(title)
-                          .foregroundStyle(.white.opacity(0.65))
+                          .foregroundStyle(
+                              .white.opacity(0.65)
+                          )
 
                       Spacer()
 
                       Text(value)
-                          .font(.headline.monospaced().bold())
+                          .font(
+                              .headline
+                              .monospaced()
+                              .bold()
+                          )
                   }
               }
           }
