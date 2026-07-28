@@ -646,10 +646,21 @@ jobs:
                                   ? "arrow.triangle.2.circlepath"
                                   : "play.fill"
                           )
-                          .symbolEffect(
-                              .rotate,
-                              isActive:
+                          .rotationEffect(
+                              .degrees(
                                   game.isSpinning
+                                      ? 360
+                                      : 0
+                              )
+                          )
+                          .animation(
+                              game.isSpinning
+                                  ? .linear(duration: 0.8)
+                                      .repeatForever(
+                                          autoreverses: false
+                                      )
+                                  : .default,
+                              value: game.isSpinning
                           )
 
                           Text(
