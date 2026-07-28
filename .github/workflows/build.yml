@@ -722,7 +722,7 @@ jobs:
 
               private var footer: some View {
                   Text(
-                      "SIMULATED CREDITS ONLY • NO REAL MONEY • NO CASH VALUE"
+                      "SIMULATED CREDITS ONLY â¢ NO REAL MONEY â¢ NO CASH VALUE"
                   )
                   .font(
                       .system(
@@ -953,11 +953,11 @@ jobs:
 
                       HStack(spacing: 5) {
                           payout("7", 25)
-                          payout("♦", 15)
-                          payout("🔔", 10)
-                          payout("●", 8)
-                          payout("★", 6)
-                          payout("⚡", 4)
+                          payout("â¦", 15)
+                          payout("ð", 10)
+                          payout("â", 8)
+                          payout("â", 6)
+                          payout("â¡", 4)
                       }
                   }
               }
@@ -1396,7 +1396,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          brew untap aws/tap || true
           brew install xcodegen
+          xcodegen --version
 
       - name: Generate Xcode project
         shell: bash
