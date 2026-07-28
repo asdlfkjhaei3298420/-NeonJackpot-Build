@@ -188,6 +188,24 @@ jobs:
               }
           }
 
+
+          struct SlotPayline {
+              let id: Int
+              let rows: [Int]
+
+              static let all: [SlotPayline] = [
+                  SlotPayline(id: 0, rows: [0, 0, 0, 0, 0]),
+                  SlotPayline(id: 1, rows: [1, 1, 1, 1, 1]),
+                  SlotPayline(id: 2, rows: [2, 2, 2, 2, 2]),
+                  SlotPayline(id: 3, rows: [0, 1, 2, 1, 0]),
+                  SlotPayline(id: 4, rows: [2, 1, 0, 1, 2]),
+                  SlotPayline(id: 5, rows: [0, 0, 1, 2, 2]),
+                  SlotPayline(id: 6, rows: [2, 2, 1, 0, 0]),
+                  SlotPayline(id: 7, rows: [1, 0, 0, 0, 1]),
+                  SlotPayline(id: 8, rows: [1, 2, 2, 2, 1])
+              ]
+          }
+
           enum BlackjackPhase {
               case ready
               case playerTurn
@@ -334,11 +352,16 @@ jobs:
 
               @Published var selectedGame: CasinoGame = .slots
 
-              @Published var slotReels: [SlotSymbol] = [.seven, .diamond, .bell]
+              @Published var slotGrid: [[SlotSymbol]] = [
+                  [.seven, .diamond, .bell, .star, .bolt],
+                  [.cherry, .seven, .diamond, .bell, .star],
+                  [.bolt, .cherry, .seven, .diamond, .bell]
+              ]
+              @Published var slotWinningLines: [Int] = []
               @Published var slotIsSpinning = false
               @Published var slotStopRequested = false
               @Published var slotLastWin = 0
-              @Published var slotMessage = "READY TO PLAY"
+              @Published var slotMessage = "READY TO PLAY - 9 LINES"
               @Published var slotTotalSpins: Int {
                   didSet {
                       UserDefaults.standard.set(slotTotalSpins, forKey: "slotTotalSpins")
@@ -352,6 +375,8 @@ jobs:
 
               @Published var rouletteBets: [String: Int] = [:]
               @Published var rouletteSpots: [String: RouletteBetSpot] = [:]
+              @Published var roulettePreviousBets: [String: Int] = [:]
+              @Published var roulettePreviousSpots: [String: RouletteBetSpot] = [:]
               @Published var rouletteSelectedChip = 25
               @Published var rouletteWinningNumber: Int?
               @Published var rouletteIsSpinning = false
@@ -370,7 +395,10 @@ jobs:
                   10_000, 25_000, 50_000, 100_000
               ]
 
-              let rouletteChipValues = [5, 25, 100, 500, 1_000, 5_000]
+              let rouletteChipValues = [
+                  5, 25, 100, 500, 1_000, 5_000,
+                  10_000, 25_000, 50_000, 100_000
+              ]
 
               private var blackjackDeck: [PlayingCard] = []
 
@@ -437,6 +465,7 @@ jobs:
                   slotIsSpinning = true
                   slotStopRequested = false
                   slotLastWin = 0
+                  slotWinningLines = []
                   slotMessage = "SPINNING - TAP AGAIN TO STOP"
                   chargeWager(wager)
                   CasinoSound.spin()
@@ -450,14 +479,14 @@ jobs:
                       try? await Task.sleep(nanoseconds: delay)
                   }
 
-                  slotReels = [
-                      randomSlotSymbol(),
-                      randomSlotSymbol(),
-                      randomSlotSymbol()
-                  ]
+                  slotGrid = (0..<3).map { _ in
+                      (0..<5).map { _ in randomSlotSymbol() }
+                  }
 
                   slotTotalSpins += 1
-                  let payout = slotPayout()
+                  let result = evaluateSlotLines()
+                  slotWinningLines = result.lines
+                  let payout = result.payout
                   slotLastWin = payout
 
                   if payout > 0 {
@@ -465,11 +494,19 @@ jobs:
                       slotBiggestWin = max(slotBiggestWin, payout)
                       CasinoSound.win()
 
-                      if slotReels.allSatisfy({ $0 == .seven }) {
-                          slotMessage = "MEGA JACKPOT!"
-                      } else {
-                          slotMessage = "WINNER +$\(payout.formatted())"
+                      let sevenLine = slotWinningLines.contains { lineID in
+                          guard let line = SlotPayline.all.first(where: { $0.id == lineID }) else {
+                              return false
+                          }
+
+                          return (0..<5).allSatisfy {
+                              slotGrid[line.rows[$0]][$0] == .seven
+                          }
                       }
+
+                      slotMessage = sevenLine
+                          ? "MEGA JACKPOT!"
+                          : "\(slotWinningLines.count) LINE WIN +$\(payout.formatted())"
                   } else {
                       CasinoSound.lose()
                       slotMessage = developerMode
@@ -502,8 +539,34 @@ jobs:
                   guard !rouletteIsSpinning else { return }
                   rouletteBets.removeAll()
                   rouletteSpots.removeAll()
+                  roulettePreviousBets.removeAll()
+                  roulettePreviousSpots.removeAll()
+                  rouletteWinningNumber = nil
                   rouletteMessage = "TABLE CLEARED"
                   CasinoSound.tap()
+              }
+
+              func placePreviousRouletteBet() {
+                  guard !rouletteIsSpinning else { return }
+                  guard !roulettePreviousBets.isEmpty else {
+                      rouletteMessage = "NO PREVIOUS BET"
+                      CasinoSound.lose()
+                      return
+                  }
+
+                  let previousTotal = roulettePreviousBets.values.reduce(0, +)
+
+                  guard developerMode || previousTotal <= balance else {
+                      rouletteMessage = "NOT ENOUGH CREDITS TO REBET"
+                      CasinoSound.lose()
+                      return
+                  }
+
+                  rouletteBets = roulettePreviousBets
+                  rouletteSpots = roulettePreviousSpots
+                  rouletteWinningNumber = nil
+                  rouletteMessage = "PREVIOUS BET RESTORED"
+                  CasinoSound.chip()
               }
 
               func removeLastRouletteChip() {
@@ -540,6 +603,8 @@ jobs:
                   rouletteIsSpinning = true
                   rouletteWinningNumber = nil
                   rouletteLastWin = 0
+                  roulettePreviousBets = rouletteBets
+                  roulettePreviousSpots = rouletteSpots
                   rouletteMessage = "NO MORE BETS"
                   chargeWager(totalRouletteStake)
                   CasinoSound.spin()
@@ -647,7 +712,12 @@ jobs:
                   wager = 10
                   developerMode = false
 
-                  slotReels = [.seven, .diamond, .bell]
+                  slotGrid = [
+                      [.seven, .diamond, .bell, .star, .bolt],
+                      [.cherry, .seven, .diamond, .bell, .star],
+                      [.bolt, .cherry, .seven, .diamond, .bell]
+                  ]
+                  slotWinningLines = []
                   slotIsSpinning = false
                   slotStopRequested = false
                   slotLastWin = 0
@@ -688,28 +758,43 @@ jobs:
                   }
               }
 
-              private func slotPayout() -> Int {
-                  let first = slotReels[0]
-                  let second = slotReels[1]
-                  let third = slotReels[2]
+              private func evaluateSlotLines() -> (payout: Int, lines: [Int]) {
+                  var payout = 0
+                  var winningLines: [Int] = []
 
-                  if first == second && second == third {
-                      return wager * first.multiplier
-                  }
-
-                  if first == second || second == third || first == third {
-                      let matching: SlotSymbol
-
-                      if first == second || first == third {
-                          matching = first
-                      } else {
-                          matching = second
+                  for line in SlotPayline.all {
+                      let symbols = (0..<5).map {
+                          slotGrid[line.rows[$0]][$0]
                       }
 
-                      return max(wager, wager * matching.multiplier / 4)
+                      let first = symbols[0]
+                      var matchingCount = 1
+
+                      for symbol in symbols.dropFirst() {
+                          if symbol == first {
+                              matchingCount += 1
+                          } else {
+                              break
+                          }
+                      }
+
+                      guard matchingCount >= 3 else { continue }
+
+                      let lineMultiplier: Int
+                      switch matchingCount {
+                      case 5:
+                          lineMultiplier = first.multiplier * 5
+                      case 4:
+                          lineMultiplier = first.multiplier * 2
+                      default:
+                          lineMultiplier = first.multiplier
+                      }
+
+                      payout += wager * lineMultiplier
+                      winningLines.append(line.id)
                   }
 
-                  return 0
+                  return (payout, winningLines)
               }
 
               private func randomSlotSymbol() -> SlotSymbol {
@@ -1000,40 +1085,24 @@ jobs:
               @EnvironmentObject private var game: CasinoModel
 
               var body: some View {
-                  VStack(spacing: 12) {
+                  VStack(spacing: 9) {
                       Text(game.slotMessage)
-                          .font(.subheadline.monospaced().bold())
+                          .font(.caption.monospaced().bold())
                           .foregroundStyle(
                               game.slotLastWin > 0
                                   ? Color.yellow
                                   : Color.white.opacity(0.85)
                           )
                           .frame(maxWidth: .infinity)
-                          .padding(.vertical, 8)
+                          .padding(.vertical, 7)
                           .background(.black.opacity(0.35), in: Capsule())
 
-                      HStack(spacing: 8) {
-                          ForEach(0..<3, id: \.self) { index in
-                              RollingReelView(
-                                  finalSymbol: game.slotReels[index],
-                                  spinning: game.slotIsSpinning,
-                                  reelIndex: index
-                              )
-                          }
-                      }
-                      .padding(10)
-                      .background(
-                          RoundedRectangle(cornerRadius: 20)
-                              .fill(.black.opacity(0.58))
-                              .stroke(
-                                  LinearGradient(
-                                      colors: [.cyan, .purple, .pink],
-                                      startPoint: .topLeading,
-                                      endPoint: .bottomTrailing
-                                  ),
-                                  lineWidth: 3
-                              )
+                      SlotMachineGrid(
+                          grid: game.slotGrid,
+                          spinning: game.slotIsSpinning,
+                          winningLines: game.slotWinningLines
                       )
+                      .frame(maxHeight: .infinity)
 
                       WagerSelector()
 
@@ -1041,15 +1110,15 @@ jobs:
                           game.primarySlotButtonPressed()
                       } label: {
                           Label(
-                              game.slotIsSpinning ? "FAST STOP" : "SPIN",
+                              game.slotIsSpinning ? "FAST STOP" : "SPIN 9 LINES",
                               systemImage: game.slotIsSpinning
                                   ? "stop.fill"
                                   : "play.fill"
                           )
-                          .font(.headline.weight(.black))
-                          .tracking(2)
+                          .font(.subheadline.weight(.black))
+                          .tracking(1.5)
                           .frame(maxWidth: .infinity)
-                          .padding(.vertical, 15)
+                          .padding(.vertical, 12)
                           .foregroundStyle(.black)
                           .background(
                               LinearGradient(
@@ -1059,7 +1128,7 @@ jobs:
                                   startPoint: .leading,
                                   endPoint: .trailing
                               ),
-                              in: RoundedRectangle(cornerRadius: 16)
+                              in: RoundedRectangle(cornerRadius: 14)
                           )
                       }
                       .buttonStyle(.plain)
@@ -1071,23 +1140,217 @@ jobs:
                       HStack {
                           Text("\(game.slotTotalSpins) spins")
                           Spacer()
+                          Text("9 active lines")
+                          Spacer()
                           Text("Best $\(game.slotBiggestWin.formatted())")
                       }
                       .font(.caption2.bold())
                       .foregroundStyle(.white.opacity(0.55))
-
-                      Spacer(minLength: 4)
                   }
                   .padding(.horizontal, 14)
-                  .padding(.top, 4)
+                  .padding(.top, 3)
+                  .padding(.bottom, 4)
+              }
+          }
+
+          struct SlotMachineGrid: View {
+              let grid: [[SlotSymbol]]
+              let spinning: Bool
+              let winningLines: [Int]
+
+              var body: some View {
+                  GeometryReader { geometry in
+                      let cellWidth = geometry.size.width / 5
+                      let cellHeight = geometry.size.height / 3
+
+                      ZStack {
+                          HStack(spacing: 0) {
+                              ForEach(0..<5, id: \.self) { column in
+                                  SlotReelColumn(
+                                      finalSymbols: [
+                                          grid[0][column],
+                                          grid[1][column],
+                                          grid[2][column]
+                                      ],
+                                      spinning: spinning,
+                                      reelIndex: column
+                                  )
+                                  .frame(width: cellWidth)
+                              }
+                          }
+
+                          if !spinning && !winningLines.isEmpty {
+                              TimelineView(.animation) { context in
+                                  let phase = Int(
+                                      context.date.timeIntervalSinceReferenceDate * 3
+                                  ) % 2
+                                  let visible = phase == 0
+
+                                  Canvas { canvas, size in
+                                      guard visible else { return }
+
+                                      for lineID in winningLines {
+                                          guard let line = SlotPayline.all.first(
+                                              where: { $0.id == lineID }
+                                          ) else {
+                                              continue
+                                          }
+
+                                          var path = Path()
+
+                                          for column in 0..<5 {
+                                              let point = CGPoint(
+                                                  x: cellWidth * (CGFloat(column) + 0.5),
+                                                  y: cellHeight * (
+                                                      CGFloat(line.rows[column]) + 0.5
+                                                  )
+                                              )
+
+                                              if column == 0 {
+                                                  path.move(to: point)
+                                              } else {
+                                                  path.addLine(to: point)
+                                              }
+                                          }
+
+                                          canvas.stroke(
+                                              path,
+                                              with: .color(.yellow),
+                                              style: StrokeStyle(
+                                                  lineWidth: 5,
+                                                  lineCap: .round,
+                                                  lineJoin: .round
+                                              )
+                                          )
+                                      }
+                                  }
+                              }
+                              .allowsHitTesting(false)
+                          }
+                      }
+                      .background(.black.opacity(0.65))
+                      .clipShape(RoundedRectangle(cornerRadius: 18))
+                      .overlay {
+                          RoundedRectangle(cornerRadius: 18)
+                              .stroke(
+                                  LinearGradient(
+                                      colors: [.cyan, .purple, .pink],
+                                      startPoint: .topLeading,
+                                      endPoint: .bottomTrailing
+                                  ),
+                                  lineWidth: 3
+                              )
+                      }
+                  }
+              }
+          }
+
+          struct SlotReelColumn: View {
+              let finalSymbols: [SlotSymbol]
+              let spinning: Bool
+              let reelIndex: Int
+
+              var body: some View {
+                  GeometryReader { geometry in
+                      let cellHeight = geometry.size.height / 3
+
+                      ZStack {
+                          Color.white.opacity(0.92)
+
+                          if spinning {
+                              TimelineView(.animation) { context in
+                                  let time = context.date.timeIntervalSinceReferenceDate
+                                  let speed = 10.0 + Double(reelIndex) * 1.7
+                                  let raw = time * speed
+                                  let base = Int(floor(raw))
+                                  let fraction = raw - floor(raw)
+                                  let symbols = SlotSymbol.allCases
+
+                                  VStack(spacing: 0) {
+                                      ForEach(0..<5, id: \.self) { row in
+                                          let index = positiveModulo(
+                                              base + row + reelIndex,
+                                              symbols.count
+                                          )
+
+                                          CompactSlotSymbolView(symbol: symbols[index])
+                                              .frame(height: cellHeight)
+                                      }
+                                  }
+                                  .offset(y: -cellHeight * CGFloat(fraction + 1))
+                                  .blur(radius: 0.9)
+                              }
+                          } else {
+                              VStack(spacing: 0) {
+                                  ForEach(0..<3, id: \.self) { row in
+                                      CompactSlotSymbolView(symbol: finalSymbols[row])
+                                          .frame(height: cellHeight)
+                                  }
+                              }
+                          }
+
+                          VStack(spacing: 0) {
+                              ForEach(0..<3, id: \.self) { _ in
+                                  Rectangle()
+                                      .stroke(.black.opacity(0.22), lineWidth: 0.6)
+                              }
+                          }
+                      }
+                      .clipped()
+                      .overlay(alignment: .trailing) {
+                          Rectangle()
+                              .fill(.black.opacity(0.25))
+                              .frame(width: 1)
+                      }
+                  }
+              }
+
+              private func positiveModulo(_ value: Int, _ modulus: Int) -> Int {
+                  let result = value % modulus
+                  return result >= 0 ? result : result + modulus
+              }
+          }
+
+          struct CompactSlotSymbolView: View {
+              let symbol: SlotSymbol
+
+              var body: some View {
+                  Group {
+                      if symbol == .seven {
+                          Text("7")
+                              .font(.system(size: 28, weight: .black, design: .rounded))
+                              .foregroundStyle(
+                                  LinearGradient(
+                                      colors: [.pink, .red, .orange],
+                                      startPoint: .top,
+                                      endPoint: .bottom
+                                  )
+                              )
+                      } else {
+                          Image(systemName: symbol.display)
+                              .font(.system(size: 23, weight: .black))
+                              .foregroundStyle(symbolColor)
+                      }
+                  }
+                  .frame(maxWidth: .infinity, maxHeight: .infinity)
+              }
+
+              private var symbolColor: AnyShapeStyle {
+                  switch symbol {
+                  case .seven: return AnyShapeStyle(Color.red)
+                  case .diamond: return AnyShapeStyle(Color.cyan)
+                  case .bell: return AnyShapeStyle(Color.orange)
+                  case .cherry: return AnyShapeStyle(Color.red)
+                  case .star: return AnyShapeStyle(Color.purple)
+                  case .bolt: return AnyShapeStyle(Color.yellow)
+                  }
               }
           }
 
           struct RouletteView: View {
               @EnvironmentObject private var game: CasinoModel
 
-              @State private var wheelRotation = 0.0
-              @State private var ballRotation = 0.0
+              @State private var rouletteSpinTarget: Int?
 
               var body: some View {
                   GeometryReader { geometry in
@@ -1101,23 +1364,17 @@ jobs:
                           .padding(.horizontal, 10)
                           .padding(.top, 2)
 
-                          if game.rouletteIsSpinning {
-                              Color.black.opacity(0.72)
+                          if game.rouletteIsSpinning,
+                             let target = rouletteSpinTarget {
+                              Color.black.opacity(0.76)
                                   .ignoresSafeArea()
 
-                              RouletteWheelView(
-                                  wheelRotation: wheelRotation,
-                                  ballRotation: ballRotation,
-                                  result: nil
-                              )
-                              .frame(
-                                  width: min(geometry.size.width * 0.88, 360),
-                                  height: min(geometry.size.width * 0.88, 360)
-                              )
-                          } else if let result = game.rouletteWinningNumber {
-                              RouletteResultBadge(number: result)
+                              AnimatedRouletteWheel(targetNumber: target)
+                                  .frame(
+                                      width: min(geometry.size.width * 0.9, 370),
+                                      height: min(geometry.size.width * 0.9, 370)
+                                  )
                                   .transition(.scale.combined(with: .opacity))
-                                  .offset(y: -geometry.size.height * 0.18)
                           }
                       }
                   }
@@ -1143,27 +1400,50 @@ jobs:
               }
 
               private var chipRack: some View {
-                  HStack(spacing: 6) {
-                      ForEach(game.rouletteChipValues, id: \.self) { chip in
-                          ChipView(
-                              value: chip,
-                              selected: game.rouletteSelectedChip == chip
-                          )
-                          .onTapGesture {
-                              game.rouletteSelectedChip = chip
-                              CasinoSound.chip()
+                  HStack(spacing: 5) {
+                      ScrollView(.horizontal, showsIndicators: false) {
+                          HStack(spacing: 6) {
+                              ForEach(game.rouletteChipValues, id: \.self) { chip in
+                                  ChipView(
+                                      value: chip,
+                                      selected: game.rouletteSelectedChip == chip
+                                  )
+                                  .onTapGesture {
+                                      game.rouletteSelectedChip = chip
+                                      CasinoSound.chip()
+                                  }
+                                  .draggable(String(chip))
+                              }
                           }
-                          .draggable(String(chip))
+                          .padding(.horizontal, 2)
                       }
+
+                      Button {
+                          game.placePreviousRouletteBet()
+                      } label: {
+                          VStack(spacing: 1) {
+                              Image(systemName: "arrow.clockwise.circle.fill")
+                              Text("REBET")
+                                  .font(.system(size: 7, weight: .black))
+                          }
+                          .frame(width: 38, height: 36)
+                          .foregroundStyle(.black)
+                          .background(.cyan, in: RoundedRectangle(cornerRadius: 9))
+                      }
+                      .buttonStyle(.plain)
+                      .disabled(
+                          game.roulettePreviousBets.isEmpty ||
+                          game.rouletteIsSpinning
+                      )
 
                       Button {
                           game.removeLastRouletteChip()
                       } label: {
                           Image(systemName: "arrow.uturn.backward")
                               .font(.caption.bold())
-                              .frame(width: 31, height: 31)
+                              .frame(width: 32, height: 36)
                               .foregroundStyle(.white)
-                              .background(.white.opacity(0.1), in: Circle())
+                              .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
                       }
                       .buttonStyle(.plain)
 
@@ -1172,9 +1452,9 @@ jobs:
                       } label: {
                           Image(systemName: "trash.fill")
                               .font(.caption.bold())
-                              .frame(width: 31, height: 31)
+                              .frame(width: 32, height: 36)
                               .foregroundStyle(.white)
-                              .background(.red.opacity(0.25), in: Circle())
+                              .background(.red.opacity(0.25), in: RoundedRectangle(cornerRadius: 9))
                       }
                       .buttonStyle(.plain)
                   }
@@ -1284,16 +1564,11 @@ jobs:
               private var rouletteControls: some View {
                   Button {
                       let result = EuropeanRoulette.order.randomElement() ?? 0
-                      let index = EuropeanRoulette.order.firstIndex(of: result) ?? 0
-                      let step = 360.0 / Double(EuropeanRoulette.order.count)
-
-                      withAnimation(.easeOut(duration: 3.1)) {
-                          wheelRotation += 1_800 - Double(index) * step
-                          ballRotation += 1_080
-                      }
+                      rouletteSpinTarget = result
 
                       Task {
                           await game.spinRoulette(winningNumber: result)
+                          rouletteSpinTarget = nil
                       }
                   } label: {
                       Label(
@@ -1539,10 +1814,11 @@ jobs:
               }
           }
 
-          struct RouletteWheelView: View {
-              let wheelRotation: Double
-              let ballRotation: Double
-              let result: Int?
+          struct AnimatedRouletteWheel: View {
+              let targetNumber: Int
+
+              @State private var wheelRotation = 0.0
+              @State private var ballRotation = 0.0
 
               var body: some View {
                   GeometryReader { geometry in
@@ -1557,8 +1833,8 @@ jobs:
                               .fill(
                                   RadialGradient(
                                       colors: [
-                                          Color(red: 0.55, green: 0.28, blue: 0.08),
-                                          Color(red: 0.22, green: 0.08, blue: 0.02)
+                                          Color(red: 0.58, green: 0.3, blue: 0.08),
+                                          Color(red: 0.2, green: 0.06, blue: 0.01)
                                       ],
                                       center: .center,
                                       startRadius: 10,
@@ -1581,8 +1857,12 @@ jobs:
                                       .frame(width: size * 0.075, height: size * 0.075)
                                       .rotationEffect(.degrees(-wheelRotation - angle))
                                       .position(
-                                          x: center.x + labelRadius * CGFloat(sin(angle * .pi / 180)),
-                                          y: center.y - labelRadius * CGFloat(cos(angle * .pi / 180))
+                                          x: center.x + labelRadius * CGFloat(
+                                              sin(angle * .pi / 180)
+                                          ),
+                                          y: center.y - labelRadius * CGFloat(
+                                              cos(angle * .pi / 180)
+                                          )
                                       )
                               }
                           }
@@ -1593,7 +1873,7 @@ jobs:
                               .frame(width: size * 0.34, height: size * 0.34)
                               .overlay {
                                   VStack(spacing: 2) {
-                                      Text(result.map(String.init) ?? "SPIN")
+                                      Text("SPIN")
                                           .font(.system(size: size * 0.11, weight: .black))
                                       Text("ROULETTE")
                                           .font(.caption2.bold())
@@ -1609,6 +1889,21 @@ jobs:
                               .rotationEffect(.degrees(ballRotation))
                       }
                       .frame(width: size, height: size)
+                      .onAppear {
+                          let targetIndex =
+                              EuropeanRoulette.order.firstIndex(of: targetNumber) ?? 0
+                          let targetAngle = Double(targetIndex) * step
+
+                          wheelRotation = 0
+                          ballRotation = 0
+
+                          DispatchQueue.main.async {
+                              withAnimation(.easeOut(duration: 3.15)) {
+                                  wheelRotation = 1_800 - targetAngle
+                                  ballRotation = -1_440 + targetAngle
+                              }
+                          }
+                      }
                   }
               }
           }
