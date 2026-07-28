@@ -1,0 +1,1218 @@
+name: Build Neon Jackpot IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Create iOS project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p NeonJackpot
+
+          cat > project.yml <<'PROJECT'
+          name: NeonJackpot
+
+          options:
+            bundleIdPrefix: com.example
+            deploymentTarget:
+              iOS: "17.0"
+
+          targets:
+            NeonJackpot:
+              type: application
+              platform: iOS
+              sources:
+                - NeonJackpot
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.example.NeonJackpot
+                  PRODUCT_NAME: NeonJackpot
+                  SWIFT_VERSION: "5.0"
+                  TARGETED_DEVICE_FAMILY: "1,2"
+                  GENERATE_INFOPLIST_FILE: NO
+                  INFOPLIST_FILE: NeonJackpot/Info.plist
+                  CODE_SIGNING_ALLOWED: NO
+                  CODE_SIGNING_REQUIRED: NO
+                  CODE_SIGN_IDENTITY: ""
+          PROJECT
+
+          cat > NeonJackpot/Info.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key>
+              <string>en</string>
+
+              <key>CFBundleDisplayName</key>
+              <string>Neon Jackpot</string>
+
+              <key>CFBundleExecutable</key>
+              <string>$(EXECUTABLE_NAME)</string>
+
+              <key>CFBundleIdentifier</key>
+              <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+
+              <key>CFBundleName</key>
+              <string>$(PRODUCT_NAME)</string>
+
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
+
+              <key>CFBundleVersion</key>
+              <string>1</string>
+
+              <key>LSRequiresIPhoneOS</key>
+              <true/>
+
+              <key>UIApplicationSceneManifest</key>
+              <dict>
+                  <key>UIApplicationSupportsMultipleScenes</key>
+                  <false/>
+              </dict>
+
+              <key>UILaunchScreen</key>
+              <dict/>
+
+              <key>UISupportedInterfaceOrientations</key>
+              <array>
+                  <string>UIInterfaceOrientationPortrait</string>
+              </array>
+
+              <key>UISupportedInterfaceOrientations~ipad</key>
+              <array>
+                  <string>UIInterfaceOrientationPortrait</string>
+                  <string>UIInterfaceOrientationPortraitUpsideDown</string>
+              </array>
+
+              <key>UIRequiresFullScreen</key>
+              <true/>
+
+              <key>ITSAppUsesNonExemptEncryption</key>
+              <false/>
+          </dict>
+          </plist>
+          PLIST
+
+          cat > NeonJackpot/NeonJackpotApp.swift <<'SWIFT'
+          import SwiftUI
+          import UIKit
+
+          @main
+          struct NeonJackpotApp: App {
+              @StateObject private var game = GameModel()
+
+              var body: some Scene {
+                  WindowGroup {
+                      ContentView()
+                          .environmentObject(game)
+                          .preferredColorScheme(.dark)
+                  }
+              }
+          }
+
+          enum SlotSymbol: String, CaseIterable, Codable {
+              case seven
+              case diamond
+              case bell
+              case cherry
+              case star
+              case bolt
+
+              var icon: String {
+                  switch self {
+                  case .seven:
+                      return "7"
+                  case .diamond:
+                      return "diamond.fill"
+                  case .bell:
+                      return "bell.fill"
+                  case .cherry:
+                      return "circle.grid.cross.fill"
+                  case .star:
+                      return "star.fill"
+                  case .bolt:
+                      return "bolt.fill"
+                  }
+              }
+
+              var name: String {
+                  switch self {
+                  case .seven:
+                      return "Seven"
+                  case .diamond:
+                      return "Diamond"
+                  case .bell:
+                      return "Bell"
+                  case .cherry:
+                      return "Cherry"
+                  case .star:
+                      return "Star"
+                  case .bolt:
+                      return "Bolt"
+                  }
+              }
+
+              var multiplier: Int {
+                  switch self {
+                  case .seven:
+                      return 25
+                  case .diamond:
+                      return 15
+                  case .bell:
+                      return 10
+                  case .cherry:
+                      return 8
+                  case .star:
+                      return 6
+                  case .bolt:
+                      return 4
+                  }
+              }
+
+              var weight: Int {
+                  switch self {
+                  case .seven:
+                      return 3
+                  case .diamond:
+                      return 5
+                  case .bell:
+                      return 8
+                  case .cherry:
+                      return 12
+                  case .star:
+                      return 18
+                  case .bolt:
+                      return 24
+                  }
+              }
+          }
+
+          @MainActor
+          final class GameModel: ObservableObject {
+              @Published var balance: Int {
+                  didSet {
+                      UserDefaults.standard.set(balance, forKey: "balance")
+                  }
+              }
+
+              @Published var bet = 10
+              @Published var reels: [SlotSymbol] = [.seven, .diamond, .bell]
+              @Published var isSpinning = false
+              @Published var lastWin = 0
+              @Published var message = "READY TO PLAY"
+              @Published var totalSpins: Int {
+                  didSet {
+                      UserDefaults.standard.set(totalSpins, forKey: "totalSpins")
+                  }
+              }
+
+              @Published var biggestWin: Int {
+                  didSet {
+                      UserDefaults.standard.set(biggestWin, forKey: "biggestWin")
+                  }
+              }
+
+              let availableBets = [5, 10, 25, 50, 100]
+
+              var canSpin: Bool {
+                  !isSpinning && balance >= bet
+              }
+
+              init() {
+                  let defaults = UserDefaults.standard
+
+                  if defaults.object(forKey: "balance") == nil {
+                      balance = 1000
+                  } else {
+                      balance = defaults.integer(forKey: "balance")
+                  }
+
+                  totalSpins = defaults.integer(forKey: "totalSpins")
+                  biggestWin = defaults.integer(forKey: "biggestWin")
+              }
+
+              func spin() async {
+                  guard canSpin else {
+                      message = balance < bet ? "NOT ENOUGH CREDITS" : "PLEASE WAIT"
+                      return
+                  }
+
+                  isSpinning = true
+                  balance -= bet
+                  lastWin = 0
+                  message = "SPINNING..."
+
+                  for frame in 0..<15 {
+                      reels = [
+                          randomSymbol(),
+                          randomSymbol(),
+                          randomSymbol()
+                      ]
+
+                      let delay = 45_000_000 + UInt64(frame * 8_000_000)
+                      try? await Task.sleep(nanoseconds: delay)
+                  }
+
+                  reels = [
+                      randomSymbol(),
+                      randomSymbol(),
+                      randomSymbol()
+                  ]
+
+                  totalSpins += 1
+
+                  let winnings = calculatePayout()
+
+                  lastWin = winnings
+
+                  if winnings > 0 {
+                      balance += winnings
+                      biggestWin = max(biggestWin, winnings)
+
+                      if reels[0] == .seven &&
+                          reels[1] == .seven &&
+                          reels[2] == .seven {
+                          message = "MEGA JACKPOT!"
+                      } else {
+                          message = "WINNER +$\(winnings)"
+                      }
+                  } else {
+                      message = "TRY AGAIN"
+                  }
+
+                  isSpinning = false
+              }
+
+              func resetBalance() {
+                  balance = 1000
+                  lastWin = 0
+                  message = "BALANCE RESET TO $1,000"
+              }
+
+              func resetEverything() {
+                  balance = 1000
+                  bet = 10
+                  reels = [.seven, .diamond, .bell]
+                  lastWin = 0
+                  totalSpins = 0
+                  biggestWin = 0
+                  message = "GAME DATA RESET"
+              }
+
+              private func calculatePayout() -> Int {
+                  let first = reels[0]
+                  let second = reels[1]
+                  let third = reels[2]
+
+                  if first == second && second == third {
+                      return bet * first.multiplier
+                  }
+
+                  if first == second || second == third || first == third {
+                      let matchingSymbol: SlotSymbol
+
+                      if first == second || first == third {
+                          matchingSymbol = first
+                      } else {
+                          matchingSymbol = second
+                      }
+
+                      return max(bet, bet * matchingSymbol.multiplier / 4)
+                  }
+
+                  return 0
+              }
+
+              private func randomSymbol() -> SlotSymbol {
+                  let totalWeight = SlotSymbol.allCases.reduce(0) {
+                      $0 + $1.weight
+                  }
+
+                  var roll = Int.random(in: 1...totalWeight)
+
+                  for symbol in SlotSymbol.allCases {
+                      roll -= symbol.weight
+
+                      if roll <= 0 {
+                          return symbol
+                      }
+                  }
+
+                  return .bolt
+              }
+          }
+
+          struct ContentView: View {
+              @EnvironmentObject private var game: GameModel
+
+              @State private var titleTapCount = 0
+              @State private var showingAdmin = false
+              @State private var glow = false
+
+              var body: some View {
+                  ZStack {
+                      CasinoBackground()
+                          .ignoresSafeArea()
+
+                      ScrollView(showsIndicators: false) {
+                          VStack(spacing: 18) {
+                              header
+
+                              HStack(spacing: 12) {
+                                  MetricCard(
+                                      title: "BALANCE",
+                                      value: "$\(game.balance)",
+                                      icon: "creditcard.fill"
+                                  )
+
+                                  MetricCard(
+                                      title: "LAST WIN",
+                                      value: "$\(game.lastWin)",
+                                      icon: "sparkles"
+                                  )
+                              }
+
+                              slotCabinet
+                              betSelector
+                              spinButton
+                              statistics
+                              footer
+                          }
+                          .padding(.horizontal, 18)
+                          .padding(.vertical, 16)
+                      }
+                  }
+                  .sheet(isPresented: $showingAdmin) {
+                      AdminView()
+                          .environmentObject(game)
+                  }
+                  .onAppear {
+                      withAnimation(
+                          .easeInOut(duration: 1.1)
+                          .repeatForever(autoreverses: true)
+                      ) {
+                          glow.toggle()
+                      }
+                  }
+              }
+
+              private var header: some View {
+                  VStack(spacing: 3) {
+                      Text("NEON")
+                          .font(
+                              .system(
+                                  size: 18,
+                                  weight: .black,
+                                  design: .rounded
+                              )
+                          )
+                          .tracking(8)
+                          .foregroundStyle(.cyan)
+
+                      Text("JACKPOT")
+                          .font(
+                              .system(
+                                  size: 43,
+                                  weight: .black,
+                                  design: .rounded
+                              )
+                          )
+                          .tracking(2)
+                          .foregroundStyle(
+                              LinearGradient(
+                                  colors: [
+                                      .pink,
+                                      .purple,
+                                      .cyan
+                                  ],
+                                  startPoint: .leading,
+                                  endPoint: .trailing
+                              )
+                          )
+                          .shadow(
+                              color: .pink.opacity(glow ? 0.95 : 0.35),
+                              radius: glow ? 20 : 7
+                          )
+                          .onTapGesture {
+                              titleTapCount += 1
+
+                              if titleTapCount >= 7 {
+                                  titleTapCount = 0
+                                  showingAdmin = true
+
+                                  UINotificationFeedbackGenerator()
+                                      .notificationOccurred(.warning)
+                              }
+                          }
+
+                      Text("ARCADE SLOT SIMULATOR")
+                          .font(.caption.bold())
+                          .tracking(2.5)
+                          .foregroundStyle(.white.opacity(0.55))
+                  }
+              }
+
+              private var slotCabinet: some View {
+                  VStack(spacing: 14) {
+                      Text(game.message)
+                          .font(.headline.monospaced().bold())
+                          .foregroundStyle(
+                              game.lastWin > 0 ? .yellow : .white.opacity(0.85)
+                          )
+                          .frame(maxWidth: .infinity)
+                          .padding(.vertical, 9)
+                          .background(
+                              .black.opacity(0.35),
+                              in: Capsule()
+                          )
+
+                      HStack(spacing: 10) {
+                          ForEach(
+                              Array(game.reels.enumerated()),
+                              id: \.offset
+                          ) { index, symbol in
+                              ReelView(
+                                  symbol: symbol,
+                                  spinning: game.isSpinning,
+                                  delay: Double(index) * 0.08
+                              )
+                          }
+                      }
+                      .padding(12)
+                      .background(
+                          RoundedRectangle(cornerRadius: 23)
+                              .fill(.black.opacity(0.58))
+                              .stroke(
+                                  LinearGradient(
+                                      colors: [
+                                          .cyan,
+                                          .purple,
+                                          .pink
+                                      ],
+                                      startPoint: .topLeading,
+                                      endPoint: .bottomTrailing
+                                  ),
+                                  lineWidth: 3
+                              )
+                              .shadow(
+                                  color: .purple.opacity(0.75),
+                                  radius: 20
+                              )
+                      )
+
+                      PayoutView(bet: game.bet)
+                  }
+                  .padding(16)
+                  .background(
+                      .ultraThinMaterial,
+                      in: RoundedRectangle(cornerRadius: 28)
+                  )
+                  .overlay {
+                      RoundedRectangle(cornerRadius: 28)
+                          .stroke(.white.opacity(0.12))
+                  }
+              }
+
+              private var betSelector: some View {
+                  VStack(spacing: 9) {
+                      Text("SELECT BET")
+                          .font(.caption.bold())
+                          .tracking(3)
+                          .foregroundStyle(.white.opacity(0.6))
+
+                      HStack(spacing: 7) {
+                          ForEach(game.availableBets, id: \.self) { amount in
+                              Button {
+                                  game.bet = amount
+
+                                  UIImpactFeedbackGenerator(style: .light)
+                                      .impactOccurred()
+                              } label: {
+                                  Text("$\(amount)")
+                                      .font(.subheadline.bold())
+                                      .frame(maxWidth: .infinity)
+                                      .padding(.vertical, 11)
+                                      .foregroundStyle(
+                                          game.bet == amount ?
+                                              .black :
+                                              .white
+                                      )
+                                      .background(
+                                          game.bet == amount ?
+                                              AnyShapeStyle(Color.cyan) :
+                                              AnyShapeStyle(
+                                                  Color.white.opacity(0.08)
+                                              ),
+                                          in: RoundedRectangle(
+                                              cornerRadius: 12
+                                          )
+                                      )
+                              }
+                              .buttonStyle(.plain)
+                              .disabled(game.isSpinning)
+                          }
+                      }
+                  }
+              }
+
+              private var spinButton: some View {
+                  Button {
+                      UIImpactFeedbackGenerator(style: .heavy)
+                          .impactOccurred()
+
+                      Task {
+                          await game.spin()
+
+                          if game.lastWin > 0 {
+                              UINotificationFeedbackGenerator()
+                                  .notificationOccurred(.success)
+                          }
+                      }
+                  } label: {
+                      HStack(spacing: 12) {
+                          Image(
+                              systemName: game.isSpinning ?
+                                  "arrow.triangle.2.circlepath" :
+                                  "play.fill"
+                          )
+                          .symbolEffect(
+                              .rotate,
+                              isActive: game.isSpinning
+                          )
+
+                          Text(
+                              game.isSpinning ?
+                                  "SPINNING" :
+                                  "SPIN"
+                          )
+                          .font(.title2.black())
+                          .tracking(4)
+                      }
+                      .frame(maxWidth: .infinity)
+                      .padding(.vertical, 19)
+                      .foregroundStyle(.black)
+                      .background(
+                          LinearGradient(
+                              colors: game.canSpin ?
+                                  [
+                                      .yellow,
+                                      .orange,
+                                      .pink
+                                  ] :
+                                  [
+                                      .gray,
+                                      .gray.opacity(0.7)
+                                  ],
+                              startPoint: .leading,
+                              endPoint: .trailing
+                          ),
+                          in: RoundedRectangle(cornerRadius: 19)
+                      )
+                      .shadow(
+                          color: game.canSpin ?
+                              .orange.opacity(0.7) :
+                              .clear,
+                          radius: 18
+                      )
+                  }
+                  .buttonStyle(.plain)
+                  .disabled(!game.canSpin)
+              }
+
+              private var statistics: some View {
+                  HStack {
+                      Label(
+                          "\(game.totalSpins) spins",
+                          systemImage: "arrow.2.circlepath"
+                      )
+
+                      Spacer()
+
+                      Label(
+                          "Best $\(game.biggestWin)",
+                          systemImage: "trophy.fill"
+                      )
+                  }
+                  .font(.caption.bold())
+                  .foregroundStyle(.white.opacity(0.65))
+                  .padding(.horizontal, 4)
+              }
+
+              private var footer: some View {
+                  Text(
+                      "SIMULATED CREDITS ONLY • NO REAL MONEY • NO CASH VALUE"
+                  )
+                  .font(.system(size: 10, weight: .bold))
+                  .tracking(1)
+                  .multilineTextAlignment(.center)
+                  .foregroundStyle(.white.opacity(0.38))
+                  .padding(.top, 4)
+              }
+          }
+
+          struct ReelView: View {
+              let symbol: SlotSymbol
+              let spinning: Bool
+              let delay: Double
+
+              @State private var rotation = 0.0
+              @State private var scale = 1.0
+
+              var body: some View {
+                  ZStack {
+                      RoundedRectangle(cornerRadius: 17)
+                          .fill(
+                              LinearGradient(
+                                  colors: [
+                                      .white.opacity(0.98),
+                                      .white.opacity(0.75)
+                                  ],
+                                  startPoint: .top,
+                                  endPoint: .bottom
+                              )
+                          )
+
+                      RoundedRectangle(cornerRadius: 17)
+                          .stroke(.cyan.opacity(0.65), lineWidth: 2)
+
+                      if symbol == .seven {
+                          Text("7")
+                              .font(
+                                  .system(
+                                      size: 54,
+                                      weight: .black,
+                                      design: .rounded
+                                  )
+                              )
+                              .foregroundStyle(
+                                  LinearGradient(
+                                      colors: [
+                                          .pink,
+                                          .red,
+                                          .orange
+                                      ],
+                                      startPoint: .top,
+                                      endPoint: .bottom
+                                  )
+                              )
+                      } else {
+                          Image(systemName: symbol.icon)
+                              .font(.system(size: 45, weight: .black))
+                              .foregroundStyle(symbolColor)
+                      }
+                  }
+                  .frame(maxWidth: .infinity)
+                  .frame(height: 112)
+                  .rotation3DEffect(
+                      .degrees(rotation),
+                      axis: (
+                          x: 1,
+                          y: 0,
+                          z: 0
+                      )
+                  )
+                  .scaleEffect(scale)
+                  .onChange(of: spinning) { _, newValue in
+                      guard newValue else {
+                          withAnimation(.spring(response: 0.3)) {
+                              rotation = 0
+                              scale = 1
+                          }
+
+                          return
+                      }
+
+                      withAnimation(
+                          .linear(duration: 0.32)
+                          .repeatForever(autoreverses: false)
+                          .delay(delay)
+                      ) {
+                          rotation += 360
+                      }
+
+                      withAnimation(
+                          .easeInOut(duration: 0.18)
+                          .repeatForever(autoreverses: true)
+                      ) {
+                          scale = 0.9
+                      }
+                  }
+              }
+
+              private var symbolColor: some ShapeStyle {
+                  switch symbol {
+                  case .seven:
+                      return AnyShapeStyle(Color.red)
+                  case .diamond:
+                      return AnyShapeStyle(Color.cyan)
+                  case .bell:
+                      return AnyShapeStyle(Color.yellow)
+                  case .cherry:
+                      return AnyShapeStyle(Color.red)
+                  case .star:
+                      return AnyShapeStyle(Color.purple)
+                  case .bolt:
+                      return AnyShapeStyle(Color.orange)
+                  }
+              }
+          }
+
+          struct MetricCard: View {
+              let title: String
+              let value: String
+              let icon: String
+
+              var body: some View {
+                  VStack(alignment: .leading, spacing: 8) {
+                      HStack {
+                          Image(systemName: icon)
+                              .foregroundStyle(.cyan)
+
+                          Text(title)
+                              .font(.caption.bold())
+                              .tracking(1.2)
+                              .foregroundStyle(.white.opacity(0.58))
+
+                          Spacer()
+                      }
+
+                      Text(value)
+                          .font(
+                              .system(
+                                  size: 26,
+                                  weight: .black,
+                                  design: .rounded
+                              )
+                          )
+                          .foregroundStyle(.white)
+                          .lineLimit(1)
+                          .minimumScaleFactor(0.7)
+                  }
+                  .padding(14)
+                  .frame(maxWidth: .infinity)
+                  .background(
+                      .ultraThinMaterial,
+                      in: RoundedRectangle(cornerRadius: 18)
+                  )
+                  .overlay {
+                      RoundedRectangle(cornerRadius: 18)
+                          .stroke(.white.opacity(0.12))
+                  }
+              }
+          }
+
+          struct PayoutView: View {
+              let bet: Int
+
+              var body: some View {
+                  VStack(spacing: 8) {
+                      Text("THREE MATCH PAYOUT")
+                          .font(.caption2.bold())
+                          .tracking(2)
+                          .foregroundStyle(.white.opacity(0.55))
+
+                      HStack(spacing: 5) {
+                          payout("7", 25)
+                          payout("♦", 15)
+                          payout("🔔", 10)
+                          payout("●", 8)
+                          payout("★", 6)
+                          payout("⚡", 4)
+                      }
+                  }
+              }
+
+              private func payout(
+                  _ symbol: String,
+                  _ multiplier: Int
+              ) -> some View {
+                  VStack(spacing: 2) {
+                      Text(symbol)
+                          .font(.headline.bold())
+
+                      Text("$\(bet * multiplier)")
+                          .font(.system(size: 9, weight: .bold))
+                          .foregroundStyle(.yellow)
+                  }
+                  .frame(maxWidth: .infinity)
+                  .padding(.vertical, 7)
+                  .background(
+                      .white.opacity(0.06),
+                      in: RoundedRectangle(cornerRadius: 8)
+                  )
+              }
+          }
+
+          struct CasinoBackground: View {
+              @State private var move = false
+
+              var body: some View {
+                  ZStack {
+                      LinearGradient(
+                          colors: [
+                              Color.black,
+                              Color(
+                                  red: 0.07,
+                                  green: 0.01,
+                                  blue: 0.16
+                              ),
+                              Color.black
+                          ],
+                          startPoint: .topLeading,
+                          endPoint: .bottomTrailing
+                      )
+
+                      Circle()
+                          .fill(.purple.opacity(0.25))
+                          .frame(width: 330, height: 330)
+                          .blur(radius: 60)
+                          .offset(
+                              x: move ? 120 : -100,
+                              y: move ? -260 : -80
+                          )
+
+                      Circle()
+                          .fill(.cyan.opacity(0.19))
+                          .frame(width: 280, height: 280)
+                          .blur(radius: 65)
+                          .offset(
+                              x: move ? -120 : 130,
+                              y: move ? 260 : 110
+                          )
+
+                      Circle()
+                          .fill(.pink.opacity(0.18))
+                          .frame(width: 230, height: 230)
+                          .blur(radius: 55)
+                          .offset(
+                              x: move ? 80 : -120,
+                              y: move ? 80 : 320
+                          )
+                  }
+                  .onAppear {
+                      withAnimation(
+                          .easeInOut(duration: 7)
+                          .repeatForever(autoreverses: true)
+                      ) {
+                          move.toggle()
+                      }
+                  }
+              }
+          }
+
+          struct AdminView: View {
+              @EnvironmentObject private var game: GameModel
+              @Environment(\.dismiss) private var dismiss
+
+              @State private var pin = ""
+              @State private var unlocked = false
+              @State private var error = false
+              @State private var showingResetConfirmation = false
+
+              var body: some View {
+                  NavigationStack {
+                      ZStack {
+                          CasinoBackground()
+                              .ignoresSafeArea()
+
+                          if unlocked {
+                              controls
+                          } else {
+                              login
+                          }
+                      }
+                      .navigationTitle("Admin Console")
+                      .navigationBarTitleDisplayMode(.inline)
+                      .toolbar {
+                          ToolbarItem(
+                              placement: .topBarTrailing
+                          ) {
+                              Button("Done") {
+                                  dismiss()
+                              }
+                          }
+                      }
+                      .alert(
+                          "Reset all game data?",
+                          isPresented: $showingResetConfirmation
+                      ) {
+                          Button(
+                              "Cancel",
+                              role: .cancel
+                          ) {}
+
+                          Button(
+                              "Reset",
+                              role: .destructive
+                          ) {
+                              game.resetEverything()
+                          }
+                      } message: {
+                          Text(
+                              "This resets the balance, statistics, bet, and reels."
+                          )
+                      }
+                  }
+              }
+
+              private var login: some View {
+                  VStack(spacing: 20) {
+                      Image(systemName: "lock.shield.fill")
+                          .font(.system(size: 55))
+                          .foregroundStyle(.cyan)
+
+                      Text("ADMIN ACCESS")
+                          .font(.title2.black())
+                          .tracking(2)
+
+                      SecureField(
+                          "Enter PIN",
+                          text: $pin
+                      )
+                      .keyboardType(.numberPad)
+                      .textContentType(.password)
+                      .multilineTextAlignment(.center)
+                      .font(.title2.monospaced())
+                      .padding()
+                      .background(
+                          .white.opacity(0.09),
+                          in: RoundedRectangle(cornerRadius: 15)
+                      )
+                      .overlay {
+                          RoundedRectangle(cornerRadius: 15)
+                              .stroke(
+                                  error ?
+                                      Color.red :
+                                      Color.white.opacity(0.15)
+                              )
+                      }
+
+                      Button {
+                          if pin == "7777" {
+                              unlocked = true
+                              error = false
+
+                              UINotificationFeedbackGenerator()
+                                  .notificationOccurred(.success)
+                          } else {
+                              pin = ""
+                              error = true
+
+                              UINotificationFeedbackGenerator()
+                                  .notificationOccurred(.error)
+                          }
+                      } label: {
+                          Text("UNLOCK")
+                              .font(.headline.bold())
+                              .frame(maxWidth: .infinity)
+                              .padding()
+                              .foregroundStyle(.black)
+                              .background(
+                                  .cyan,
+                                  in: RoundedRectangle(cornerRadius: 15)
+                              )
+                      }
+                      .buttonStyle(.plain)
+
+                      if error {
+                          Text("Incorrect PIN")
+                              .font(.caption.bold())
+                              .foregroundStyle(.red)
+                      }
+                  }
+                  .padding(24)
+                  .background(
+                      .ultraThinMaterial,
+                      in: RoundedRectangle(cornerRadius: 25)
+                  )
+                  .padding(22)
+              }
+
+              private var controls: some View {
+                  ScrollView {
+                      VStack(spacing: 18) {
+                          Image(systemName: "gearshape.2.fill")
+                              .font(.system(size: 50))
+                              .foregroundStyle(.cyan)
+
+                          Text("GAME ADMINISTRATION")
+                              .font(.headline.black())
+                              .tracking(1.5)
+
+                          adminStatus
+
+                          Button {
+                              game.resetBalance()
+
+                              UINotificationFeedbackGenerator()
+                                  .notificationOccurred(.success)
+                          } label: {
+                              Label(
+                                  "Reset Balance to $1,000",
+                                  systemImage: "dollarsign.arrow.circlepath"
+                              )
+                              .font(.headline.bold())
+                              .frame(maxWidth: .infinity)
+                              .padding()
+                              .foregroundStyle(.black)
+                              .background(
+                                  .green,
+                                  in: RoundedRectangle(cornerRadius: 15)
+                              )
+                          }
+                          .buttonStyle(.plain)
+
+                          Button(role: .destructive) {
+                              showingResetConfirmation = true
+                          } label: {
+                              Label(
+                                  "Reset All Game Data",
+                                  systemImage: "trash.fill"
+                              )
+                              .font(.headline.bold())
+                              .frame(maxWidth: .infinity)
+                              .padding()
+                              .background(
+                                  .red.opacity(0.2),
+                                  in: RoundedRectangle(cornerRadius: 15)
+                              )
+                          }
+                          .buttonStyle(.plain)
+
+                          Text(
+                              "This application uses simulated credits only. It contains no purchases, deposits, withdrawals, prizes, or real-money wagering."
+                          )
+                          .font(.caption)
+                          .foregroundStyle(.white.opacity(0.55))
+                          .multilineTextAlignment(.center)
+                          .padding(.top, 6)
+                      }
+                      .padding(22)
+                  }
+              }
+
+              private var adminStatus: some View {
+                  VStack(spacing: 12) {
+                      statusRow(
+                          "Current balance",
+                          "$\(game.balance)"
+                      )
+
+                      statusRow(
+                          "Selected bet",
+                          "$\(game.bet)"
+                      )
+
+                      statusRow(
+                          "Total spins",
+                          "\(game.totalSpins)"
+                      )
+
+                      statusRow(
+                          "Biggest win",
+                          "$\(game.biggestWin)"
+                      )
+                  }
+                  .padding(17)
+                  .background(
+                      .white.opacity(0.08),
+                      in: RoundedRectangle(cornerRadius: 18)
+                  )
+              }
+
+              private func statusRow(
+                  _ title: String,
+                  _ value: String
+              ) -> some View {
+                  HStack {
+                      Text(title)
+                          .foregroundStyle(.white.opacity(0.65))
+
+                      Spacer()
+
+                      Text(value)
+                          .font(.headline.monospaced().bold())
+                  }
+              }
+          }
+          SWIFT
+
+      - name: Install XcodeGen
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+
+      - name: Generate Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodegen generate
+
+      - name: Build unsigned physical-device app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          xcodebuild \
+            -project NeonJackpot.xcodeproj \
+            -scheme NeonJackpot \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            clean build
+
+      - name: Package IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="DerivedData/Build/Products/Release-iphoneos/NeonJackpot.app"
+
+          test -d "$APP_PATH"
+
+          rm -rf Payload
+          rm -f NeonJackpot-LiveContainer.ipa
+
+          mkdir Payload
+          cp -R "$APP_PATH" Payload/
+
+          /usr/bin/zip \
+            -qry \
+            NeonJackpot-LiveContainer.ipa \
+            Payload
+
+          /usr/bin/unzip \
+            -t \
+            NeonJackpot-LiveContainer.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeonJackpot-LiveContainer
+          path: NeonJackpot-LiveContainer.ipa
+          if-no-files-found: error
+          retention-days: 7
