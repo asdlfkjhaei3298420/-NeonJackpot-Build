@@ -1,4 +1,4 @@
-name: Build Neon Jackpot IPA
+me: Build Neon Jackpot IPA
 
 on:
   workflow_dispatch:
@@ -112,10 +112,67 @@ jobs:
           </plist>
           PLIST
 
+
+          python3 <<'PY'
+          import math
+          import struct
+          import wave
+          from pathlib import Path
+
+          out = Path("NeonJackpot")
+          rate = 44100
+
+          def write_tone(name, notes, volume=0.35, loop_seconds=None):
+              samples = []
+
+              for frequency, duration in notes:
+                  count = int(rate * duration)
+
+                  for i in range(count):
+                      fade_in = min(1.0, i / max(1, int(rate * 0.01)))
+                      fade_out = min(
+                          1.0,
+                          (count - i) / max(1, int(rate * 0.03))
+                      )
+                      envelope = fade_in * fade_out
+                      value = math.sin(2 * math.pi * frequency * i / rate)
+                      samples.append(
+                          int(32767 * volume * envelope * value)
+                      )
+
+              with wave.open(str(out / f"{name}.wav"), "w") as wav:
+                  wav.setnchannels(1)
+                  wav.setsampwidth(2)
+                  wav.setframerate(rate)
+                  wav.writeframes(
+                      b"".join(struct.pack("<h", sample) for sample in samples)
+                  )
+
+          write_tone("tap", [(660, 0.06)])
+          write_tone("chip", [(900, 0.04), (1200, 0.05)])
+          write_tone("spin", [(180, 0.12), (260, 0.12), (360, 0.12)])
+          write_tone("card", [(420, 0.05), (300, 0.05)])
+          write_tone("lose", [(280, 0.13), (190, 0.2)])
+          write_tone("win", [(523, 0.1), (659, 0.1), (784, 0.2)])
+          write_tone(
+              "bonus",
+              [(523, 0.08), (659, 0.08), (784, 0.08), (1047, 0.28)]
+          )
+
+          music_notes = []
+          melody = [261.63, 329.63, 392.00, 523.25, 392.00, 329.63]
+
+          for _ in range(8):
+              for frequency in melody:
+                  music_notes.append((frequency, 0.24))
+
+          write_tone("music", music_notes, volume=0.10)
+          PY
+
           cat > NeonJackpot/NeonJackpotApp.swift <<'SWIFT'
           import SwiftUI
           import UIKit
-          import AudioToolbox
+          import AVFoundation
 
           @main
           struct NeonJackpotApp: App {
@@ -147,44 +204,69 @@ jobs:
           }
 
           enum SlotSymbol: String, CaseIterable, Codable {
-              case seven
-              case diamond
-              case bell
-              case cherry
-              case star
-              case bolt
+              case wild
+              case pharaoh
+              case scarab
+              case ankh
+              case crown
+              case gem
+              case sun
+              case lotus
 
               var display: String {
                   switch self {
-                  case .seven: return "7"
-                  case .diamond: return "diamond.fill"
-                  case .bell: return "bell.fill"
-                  case .cherry: return "circle.grid.cross.fill"
-                  case .star: return "star.fill"
-                  case .bolt: return "bolt.fill"
+                  case .wild: return "sparkles"
+                  case .pharaoh: return "person.crop.square.filled.and.at.rectangle"
+                  case .scarab: return "ladybug.fill"
+                  case .ankh: return "cross.fill"
+                  case .crown: return "crown.fill"
+                  case .gem: return "diamond.fill"
+                  case .sun: return "sun.max.fill"
+                  case .lotus: return "leaf.fill"
+                  }
+              }
+
+              var shortName: String {
+                  switch self {
+                  case .wild: return "WILD"
+                  case .pharaoh: return "MASK"
+                  case .scarab: return "SCARAB"
+                  case .ankh: return "ANKH"
+                  case .crown: return "CROWN"
+                  case .gem: return "GEM"
+                  case .sun: return "SUN"
+                  case .lotus: return "LOTUS"
                   }
               }
 
               var multiplier: Int {
                   switch self {
-                  case .seven: return 25
-                  case .diamond: return 15
-                  case .bell: return 10
-                  case .cherry: return 8
-                  case .star: return 6
-                  case .bolt: return 4
+                  case .wild: return 40
+                  case .pharaoh: return 25
+                  case .scarab: return 18
+                  case .ankh: return 16
+                  case .crown: return 12
+                  case .gem: return 9
+                  case .sun: return 7
+                  case .lotus: return 5
                   }
               }
 
               var weight: Int {
                   switch self {
-                  case .seven: return 3
-                  case .diamond: return 5
-                  case .bell: return 8
-                  case .cherry: return 12
-                  case .star: return 18
-                  case .bolt: return 24
+                  case .wild: return 2
+                  case .pharaoh: return 4
+                  case .scarab: return 7
+                  case .ankh: return 8
+                  case .crown: return 11
+                  case .gem: return 14
+                  case .sun: return 18
+                  case .lotus: return 22
                   }
+              }
+
+              var isCollector: Bool {
+                  self == .pharaoh || self == .scarab || self == .ankh
               }
           }
 
@@ -304,31 +386,131 @@ jobs:
               }
           }
 
+          final class CasinoAudio {
+              static let shared = CasinoAudio()
+
+              private var effectPlayers: [String: AVAudioPlayer] = [:]
+              private var musicPlayer: AVAudioPlayer?
+
+              private init() {}
+
+              func configure(soundEnabled: Bool, musicEnabled: Bool) {
+                  if soundEnabled {
+                      preloadEffects()
+                  }
+
+                  setMusicEnabled(musicEnabled)
+              }
+
+              func play(_ name: String) {
+                  guard UserDefaults.standard.object(forKey: "soundEnabled") == nil ||
+                        UserDefaults.standard.bool(forKey: "soundEnabled")
+                  else {
+                      return
+                  }
+
+                  if effectPlayers[name] == nil {
+                      effectPlayers[name] = makePlayer(name: name)
+                  }
+
+                  effectPlayers[name]?.currentTime = 0
+                  effectPlayers[name]?.play()
+              }
+
+              func setMusicEnabled(_ enabled: Bool) {
+                  if enabled {
+                      if musicPlayer == nil {
+                          musicPlayer = makePlayer(name: "music")
+                          musicPlayer?.numberOfLoops = -1
+                          musicPlayer?.volume = 0.22
+                      }
+
+                      musicPlayer?.play()
+                  } else {
+                      musicPlayer?.stop()
+                  }
+              }
+
+              private func preloadEffects() {
+                  ["tap", "chip", "spin", "card", "win", "lose", "bonus"].forEach {
+                      effectPlayers[$0] = makePlayer(name: $0)
+                  }
+              }
+
+              private func makePlayer(name: String) -> AVAudioPlayer? {
+                  guard let url = Bundle.main.url(forResource: name, withExtension: "wav") else {
+                      return nil
+                  }
+
+                  do {
+                      let player = try AVAudioPlayer(contentsOf: url)
+                      player.prepareToPlay()
+                      return player
+                  } catch {
+                      return nil
+                  }
+              }
+          }
+
           enum CasinoSound {
               static func tap() {
-                  AudioServicesPlaySystemSound(1104)
+                  CasinoAudio.shared.play("tap")
+                  vibrate(.light)
               }
 
               static func chip() {
-                  AudioServicesPlaySystemSound(1105)
+                  CasinoAudio.shared.play("chip")
+                  vibrate(.soft)
               }
 
               static func spin() {
-                  AudioServicesPlaySystemSound(1117)
+                  CasinoAudio.shared.play("spin")
+                  vibrate(.medium)
               }
 
               static func card() {
-                  AudioServicesPlaySystemSound(1103)
+                  CasinoAudio.shared.play("card")
+                  vibrate(.light)
               }
 
               static func win() {
-                  AudioServicesPlaySystemSound(1025)
+                  CasinoAudio.shared.play("win")
+                  notify(.success)
               }
 
               static func lose() {
-                  AudioServicesPlaySystemSound(1053)
+                  CasinoAudio.shared.play("lose")
+                  notify(.error)
+              }
+
+              static func bonus() {
+                  CasinoAudio.shared.play("bonus")
+                  notify(.success)
+              }
+
+              private static func vibrate(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
+                  guard UserDefaults.standard.object(forKey: "vibrationEnabled") == nil ||
+                        UserDefaults.standard.bool(forKey: "vibrationEnabled")
+                  else {
+                      return
+                  }
+
+                  UIImpactFeedbackGenerator(style: style).impactOccurred()
+              }
+
+              private static func notify(
+                  _ type: UINotificationFeedbackGenerator.FeedbackType
+              ) {
+                  guard UserDefaults.standard.object(forKey: "vibrationEnabled") == nil ||
+                        UserDefaults.standard.bool(forKey: "vibrationEnabled")
+                  else {
+                      return
+                  }
+
+                  UINotificationFeedbackGenerator().notificationOccurred(type)
               }
           }
+
 
           @MainActor
           final class CasinoModel: ObservableObject {
@@ -350,12 +532,34 @@ jobs:
                   }
               }
 
+              @Published var soundEnabled: Bool {
+                  didSet {
+                      UserDefaults.standard.set(soundEnabled, forKey: "soundEnabled")
+                  }
+              }
+
+              @Published var musicEnabled: Bool {
+                  didSet {
+                      UserDefaults.standard.set(musicEnabled, forKey: "musicEnabled")
+                      CasinoAudio.shared.setMusicEnabled(musicEnabled)
+                  }
+              }
+
+              @Published var vibrationEnabled: Bool {
+                  didSet {
+                      UserDefaults.standard.set(vibrationEnabled, forKey: "vibrationEnabled")
+                  }
+              }
+
+              @Published var showConfetti = false
+              @Published var bonusMessage: String?
+
               @Published var selectedGame: CasinoGame = .slots
 
               @Published var slotGrid: [[SlotSymbol]] = [
-                  [.seven, .diamond, .bell, .star, .bolt],
-                  [.cherry, .seven, .diamond, .bell, .star],
-                  [.bolt, .cherry, .seven, .diamond, .bell]
+                  [.wild, .pharaoh, .scarab, .ankh, .crown],
+                  [.gem, .wild, .pharaoh, .scarab, .ankh],
+                  [.lotus, .sun, .wild, .gem, .crown]
               ]
               @Published var slotWinningLines: [Int] = []
               @Published var slotIsSpinning = false
@@ -436,8 +640,22 @@ jobs:
                       : defaults.integer(forKey: "wager")
 
                   developerMode = defaults.bool(forKey: "developerMode")
+                  soundEnabled = defaults.object(forKey: "soundEnabled") == nil
+                      ? true
+                      : defaults.bool(forKey: "soundEnabled")
+                  musicEnabled = defaults.object(forKey: "musicEnabled") == nil
+                      ? true
+                      : defaults.bool(forKey: "musicEnabled")
+                  vibrationEnabled = defaults.object(forKey: "vibrationEnabled") == nil
+                      ? true
+                      : defaults.bool(forKey: "vibrationEnabled")
                   slotTotalSpins = defaults.integer(forKey: "slotTotalSpins")
                   slotBiggestWin = defaults.integer(forKey: "slotBiggestWin")
+
+                  CasinoAudio.shared.configure(
+                      soundEnabled: soundEnabled,
+                      musicEnabled: musicEnabled
+                  )
               }
 
               func primarySlotButtonPressed() {
@@ -486,11 +704,13 @@ jobs:
                   slotTotalSpins += 1
                   let result = evaluateSlotLines()
                   slotWinningLines = result.lines
-                  let payout = result.payout
+                  let bonus = evaluateCollectorBonus()
+                  let payout = result.payout + bonus
                   slotLastWin = payout
 
                   if payout > 0 {
                       balance += payout
+                      celebrate()
                       slotBiggestWin = max(slotBiggestWin, payout)
                       CasinoSound.win()
 
@@ -500,12 +720,12 @@ jobs:
                           }
 
                           return (0..<5).allSatisfy {
-                              slotGrid[line.rows[$0]][$0] == .seven
+                              slotGrid[line.rows[$0]][$0] == .wild
                           }
                       }
 
                       slotMessage = sevenLine
-                          ? "MEGA JACKPOT!"
+                          ? "WILD JACKPOT!"
                           : "\(slotWinningLines.count) LINE WIN +$\(payout.formatted())"
                   } else {
                       CasinoSound.lose()
@@ -631,6 +851,7 @@ jobs:
                   if returnAmount > 0 {
                       balance += returnAmount
                       rouletteMessage = "\(rouletteLabel(for: winningNumber)) - WIN +$\(returnAmount.formatted())"
+                      celebrate()
                       CasinoSound.win()
                   } else {
                       rouletteMessage = developerMode
@@ -697,6 +918,37 @@ jobs:
                   resolveBlackjack()
               }
 
+              func celebrate() {
+                  showConfetti = true
+
+                  Task {
+                      try? await Task.sleep(nanoseconds: 3_000_000_000)
+                      showConfetti = false
+                  }
+              }
+
+              private func evaluateCollectorBonus() -> Int {
+                  let collectors = slotGrid
+                      .flatMap { $0 }
+                      .filter { $0.isCollector }
+
+                  guard collectors.count >= 3 else {
+                      bonusMessage = nil
+                      return 0
+                  }
+
+                  let uniqueCollectors = Array(Set(collectors.map(\.rawValue)))
+                  let triggerCount = Int.random(
+                      in: 1...max(1, min(3, uniqueCollectors.count))
+                  )
+                  let multiplier = triggerCount * Int.random(in: 5...15)
+                  let bonus = wager * multiplier
+
+                  bonusMessage = "\(triggerCount)-COLLECTOR BONUS x\(multiplier)"
+                  CasinoSound.bonus()
+                  return bonus
+              }
+
               func resetBalance() {
                   balance = 1_000
                   slotLastWin = 0
@@ -713,9 +965,9 @@ jobs:
                   developerMode = false
 
                   slotGrid = [
-                      [.seven, .diamond, .bell, .star, .bolt],
-                      [.cherry, .seven, .diamond, .bell, .star],
-                      [.bolt, .cherry, .seven, .diamond, .bell]
+                      [.wild, .pharaoh, .scarab, .ankh, .crown],
+                      [.gem, .wild, .pharaoh, .scarab, .ankh],
+                      [.lotus, .sun, .wild, .gem, .crown]
                   ]
                   slotWinningLines = []
                   slotIsSpinning = false
@@ -767,11 +1019,13 @@ jobs:
                           slotGrid[line.rows[$0]][$0]
                       }
 
-                      let first = symbols[0]
-                      var matchingCount = 1
+                      let baseSymbol =
+                          symbols.first(where: { $0 != .wild }) ?? .wild
 
-                      for symbol in symbols.dropFirst() {
-                          if symbol == first {
+                      var matchingCount = 0
+
+                      for symbol in symbols {
+                          if symbol == baseSymbol || symbol == .wild {
                               matchingCount += 1
                           } else {
                               break
@@ -783,11 +1037,11 @@ jobs:
                       let lineMultiplier: Int
                       switch matchingCount {
                       case 5:
-                          lineMultiplier = first.multiplier * 5
+                          lineMultiplier = baseSymbol.multiplier * 5
                       case 4:
-                          lineMultiplier = first.multiplier * 2
+                          lineMultiplier = baseSymbol.multiplier * 2
                       default:
-                          lineMultiplier = first.multiplier
+                          lineMultiplier = baseSymbol.multiplier
                       }
 
                       payout += wager * lineMultiplier
@@ -812,7 +1066,7 @@ jobs:
                       }
                   }
 
-                  return .bolt
+                  return .lotus
               }
 
               private func makeDeck() -> [PlayingCard] {
@@ -868,6 +1122,7 @@ jobs:
                       balance += returnAmount
                       blackjackLastWin = returnAmount
                       blackjackMessage = "BLACKJACK! +$\(returnAmount.formatted())"
+                      celebrate()
                       CasinoSound.win()
                   }
 
@@ -885,6 +1140,7 @@ jobs:
                       blackjackMessage = dealer > 21
                           ? "DEALER BUSTS - YOU WIN"
                           : "YOU WIN"
+                      celebrate()
                       CasinoSound.win()
                   } else if player == dealer {
                       if !developerMode {
@@ -924,6 +1180,7 @@ jobs:
 
               @State private var titleTapCount = 0
               @State private var showingAdmin = false
+              @State private var showingSettings = false
 
               var body: some View {
                   ZStack {
@@ -952,6 +1209,17 @@ jobs:
                   .sheet(isPresented: $showingAdmin) {
                       AdminView()
                           .environmentObject(game)
+                  }
+                  .sheet(isPresented: $showingSettings) {
+                      SettingsView()
+                          .environmentObject(game)
+                  }
+                  .overlay {
+                      if game.showConfetti {
+                          ConfettiView()
+                              .allowsHitTesting(false)
+                              .transition(.opacity)
+                      }
                   }
                   .overlay(alignment: .topTrailing) {
                       if game.developerMode {
@@ -994,6 +1262,18 @@ jobs:
                           }
 
                       Spacer()
+
+                      Button {
+                          showingSettings = true
+                          CasinoSound.tap()
+                      } label: {
+                          Image(systemName: "gearshape.fill")
+                              .font(.subheadline.bold())
+                              .foregroundStyle(.white.opacity(0.75))
+                              .frame(width: 28, height: 28)
+                              .background(.white.opacity(0.08), in: Circle())
+                      }
+                      .buttonStyle(.plain)
 
                       Text("SIMULATED")
                           .font(.caption2.bold())
@@ -1096,6 +1376,10 @@ jobs:
                           .frame(maxWidth: .infinity)
                           .padding(.vertical, 7)
                           .background(.black.opacity(0.35), in: Capsule())
+
+                      if let bonusMessage = game.bonusMessage {
+                          BonusBanner(message: bonusMessage)
+                      }
 
                       SlotMachineGrid(
                           grid: game.slotGrid,
@@ -1315,35 +1599,108 @@ jobs:
               let symbol: SlotSymbol
 
               var body: some View {
-                  Group {
-                      if symbol == .seven {
-                          Text("7")
-                              .font(.system(size: 28, weight: .black, design: .rounded))
-                              .foregroundStyle(
-                                  LinearGradient(
-                                      colors: [.pink, .red, .orange],
-                                      startPoint: .top,
-                                      endPoint: .bottom
-                                  )
-                              )
-                      } else {
+                  VStack(spacing: 2) {
+                      ZStack {
+                          RoundedRectangle(cornerRadius: 8)
+                              .fill(symbolBackground)
+                              .shadow(color: symbolGlow.opacity(0.8), radius: 5)
+
                           Image(systemName: symbol.display)
                               .font(.system(size: 23, weight: .black))
-                              .foregroundStyle(symbolColor)
+                              .foregroundStyle(.white)
                       }
+                      .frame(width: 42, height: 38)
+
+                      Text(symbol.shortName)
+                          .font(.system(size: 6, weight: .black))
+                          .foregroundStyle(.black.opacity(0.75))
+                          .lineLimit(1)
                   }
                   .frame(maxWidth: .infinity, maxHeight: .infinity)
               }
 
-              private var symbolColor: AnyShapeStyle {
+              private var symbolBackground: LinearGradient {
                   switch symbol {
-                  case .seven: return AnyShapeStyle(Color.red)
-                  case .diamond: return AnyShapeStyle(Color.cyan)
-                  case .bell: return AnyShapeStyle(Color.orange)
-                  case .cherry: return AnyShapeStyle(Color.red)
-                  case .star: return AnyShapeStyle(Color.purple)
-                  case .bolt: return AnyShapeStyle(Color.yellow)
+                  case .wild:
+                      return LinearGradient(
+                          colors: [.yellow, .orange, .pink],
+                          startPoint: .topLeading,
+                          endPoint: .bottomTrailing
+                      )
+                  case .pharaoh:
+                      return LinearGradient(
+                          colors: [.purple, .orange],
+                          startPoint: .top,
+                          endPoint: .bottom
+                      )
+                  case .scarab:
+                      return LinearGradient(
+                          colors: [.green, .cyan],
+                          startPoint: .top,
+                          endPoint: .bottom
+                      )
+                  case .ankh:
+                      return LinearGradient(
+                          colors: [.blue, .purple],
+                          startPoint: .top,
+                          endPoint: .bottom
+                      )
+                  case .crown:
+                      return LinearGradient(
+                          colors: [.yellow, .brown],
+                          startPoint: .top,
+                          endPoint: .bottom
+                      )
+                  case .gem:
+                      return LinearGradient(
+                          colors: [.cyan, .blue],
+                          startPoint: .top,
+                          endPoint: .bottom
+                      )
+                  case .sun:
+                      return LinearGradient(
+                          colors: [.orange, .red],
+                          startPoint: .top,
+                          endPoint: .bottom
+                      )
+                  case .lotus:
+                      return LinearGradient(
+                          colors: [.pink, .purple],
+                          startPoint: .top,
+                          endPoint: .bottom
+                      )
                   }
+              }
+
+              private var symbolGlow: Color {
+                  switch symbol {
+                  case .wild, .crown, .sun: return .yellow
+                  case .pharaoh, .ankh, .lotus: return .purple
+                  case .scarab: return .green
+                  case .gem: return .cyan
+                  }
+              }
+          }
+
+          struct BonusBanner: View {
+              let message: String
+
+              var body: some View {
+                  Text(message)
+                      .font(.caption.weight(.black))
+                      .tracking(1)
+                      .foregroundStyle(.black)
+                      .padding(.horizontal, 13)
+                      .padding(.vertical, 7)
+                      .background(
+                          LinearGradient(
+                              colors: [.yellow, .orange, .pink],
+                              startPoint: .leading,
+                              endPoint: .trailing
+                          ),
+                          in: Capsule()
+                      )
+                      .shadow(color: .yellow.opacity(0.8), radius: 10)
               }
           }
 
@@ -1351,6 +1708,7 @@ jobs:
               @EnvironmentObject private var game: CasinoModel
 
               @State private var rouletteSpinTarget: Int?
+              @State private var showingWheelResult = false
 
               var body: some View {
                   GeometryReader { geometry in
@@ -1364,12 +1722,15 @@ jobs:
                           .padding(.horizontal, 10)
                           .padding(.top, 2)
 
-                          if game.rouletteIsSpinning,
-                             let target = rouletteSpinTarget {
+                          if let target = rouletteSpinTarget,
+                             game.rouletteIsSpinning || showingWheelResult {
                               Color.black.opacity(0.76)
                                   .ignoresSafeArea()
 
-                              AnimatedRouletteWheel(targetNumber: target)
+                              AnimatedRouletteWheel(
+                                  targetNumber: target,
+                                  showResult: showingWheelResult
+                              )
                                   .frame(
                                       width: min(geometry.size.width * 0.9, 370),
                                       height: min(geometry.size.width * 0.9, 370)
@@ -1568,6 +1929,9 @@ jobs:
 
                       Task {
                           await game.spinRoulette(winningNumber: result)
+                          showingWheelResult = true
+                          try? await Task.sleep(nanoseconds: 2_800_000_000)
+                          showingWheelResult = false
                           rouletteSpinTarget = nil
                       }
                   } label: {
@@ -1600,6 +1964,7 @@ jobs:
                   spot: RouletteBetSpot
               ) -> some View {
                   let amount = game.rouletteBets[spot.id] ?? 0
+                  let isWinner = game.rouletteWinningNumber == number
 
                   return ZStack {
                       Rectangle()
@@ -1613,6 +1978,25 @@ jobs:
                           .overlay {
                               Rectangle()
                                   .stroke(.white.opacity(0.35), lineWidth: 0.7)
+                          }
+                          .overlay {
+                              if isWinner {
+                                  TimelineView(.animation) { context in
+                                      let glow = Int(
+                                          context.date.timeIntervalSinceReferenceDate * 4
+                                      ) % 2 == 0
+
+                                      RoundedRectangle(cornerRadius: 3)
+                                          .stroke(
+                                              glow ? Color.yellow : Color.white,
+                                              lineWidth: glow ? 5 : 2
+                                          )
+                                          .shadow(
+                                              color: .yellow,
+                                              radius: glow ? 12 : 3
+                                          )
+                                  }
+                              }
                           }
 
                       Text("\(number)")
@@ -1816,6 +2200,7 @@ jobs:
 
           struct AnimatedRouletteWheel: View {
               let targetNumber: Int
+              let showResult: Bool
 
               @State private var wheelRotation = 0.0
               @State private var ballRotation = 0.0
@@ -1873,11 +2258,22 @@ jobs:
                               .frame(width: size * 0.34, height: size * 0.34)
                               .overlay {
                                   VStack(spacing: 2) {
-                                      Text("SPIN")
-                                          .font(.system(size: size * 0.11, weight: .black))
-                                      Text("ROULETTE")
-                                          .font(.caption2.bold())
-                                          .foregroundStyle(.white.opacity(0.55))
+                                      Text(showResult ? "\(targetNumber)" : "SPIN")
+                                          .font(.system(size: size * 0.13, weight: .black))
+                                          .foregroundStyle(
+                                              showResult ? Color.yellow : Color.white
+                                          )
+                                      Text(
+                                          showResult
+                                              ? targetNumber == 0
+                                                  ? "GREEN"
+                                                  : EuropeanRoulette.redNumbers.contains(targetNumber)
+                                                      ? "RED"
+                                                      : "BLACK"
+                                              : "ROULETTE"
+                                      )
+                                      .font(.caption.bold())
+                                      .foregroundStyle(.white.opacity(0.72))
                                   }
                               }
 
@@ -2141,111 +2537,6 @@ jobs:
               }
           }
 
-          struct RollingReelView: View {
-              let finalSymbol: SlotSymbol
-              let spinning: Bool
-              let reelIndex: Int
-
-              var body: some View {
-                  ZStack {
-                      RoundedRectangle(cornerRadius: 15)
-                          .fill(
-                              LinearGradient(
-                                  colors: [
-                                      .white.opacity(0.98),
-                                      .white.opacity(0.75)
-                                  ],
-                                  startPoint: .top,
-                                  endPoint: .bottom
-                              )
-                          )
-
-                      if spinning {
-                          TimelineView(.animation) { context in
-                              let time = context.date.timeIntervalSinceReferenceDate
-                              let speed = 9.5 + Double(reelIndex) * 2.1
-                              let rawPosition = time * speed
-                              let baseIndex = Int(floor(rawPosition))
-                              let fraction = rawPosition - floor(rawPosition)
-                              let symbols = SlotSymbol.allCases
-                              let current = symbols[
-                                  positiveModulo(baseIndex + reelIndex, symbols.count)
-                              ]
-                              let next = symbols[
-                                  positiveModulo(baseIndex + reelIndex + 1, symbols.count)
-                              ]
-
-                              VStack(spacing: 0) {
-                                  SlotSymbolView(symbol: current)
-                                  SlotSymbolView(symbol: next)
-                              }
-                              .offset(y: CGFloat(-fraction * 88))
-                              .blur(radius: 1.1)
-                          }
-                      } else {
-                          SlotSymbolView(symbol: finalSymbol)
-                              .transition(.scale.combined(with: .opacity))
-                      }
-                  }
-                  .frame(maxWidth: .infinity)
-                  .frame(height: 106)
-                  .clipped()
-                  .overlay {
-                      RoundedRectangle(cornerRadius: 15)
-                          .stroke(.cyan.opacity(0.65), lineWidth: 2)
-                  }
-                  .animation(.spring(response: 0.28), value: spinning)
-              }
-
-              private func positiveModulo(_ value: Int, _ modulus: Int) -> Int {
-                  let result = value % modulus
-                  return result >= 0 ? result : result + modulus
-              }
-          }
-
-          struct SlotSymbolView: View {
-              let symbol: SlotSymbol
-
-              var body: some View {
-                  Group {
-                      if symbol == .seven {
-                          Text("7")
-                              .font(
-                                  .system(
-                                      size: 50,
-                                      weight: .black,
-                                      design: .rounded
-                                  )
-                              )
-                              .foregroundStyle(
-                                  LinearGradient(
-                                      colors: [.pink, .red, .orange],
-                                      startPoint: .top,
-                                      endPoint: .bottom
-                                  )
-                              )
-                      } else {
-                          Image(systemName: symbol.display)
-                              .font(.system(size: 40, weight: .black))
-                              .foregroundStyle(symbolColor)
-                      }
-                  }
-                  .frame(maxWidth: .infinity)
-                  .frame(height: 88)
-              }
-
-              private var symbolColor: AnyShapeStyle {
-                  switch symbol {
-                  case .seven: return AnyShapeStyle(Color.red)
-                  case .diamond: return AnyShapeStyle(Color.cyan)
-                  case .bell: return AnyShapeStyle(Color.yellow)
-                  case .cherry: return AnyShapeStyle(Color.red)
-                  case .star: return AnyShapeStyle(Color.purple)
-                  case .bolt: return AnyShapeStyle(Color.orange)
-                  }
-              }
-          }
-
           struct PlayingCardView: View {
               let card: PlayingCard
 
@@ -2360,6 +2651,97 @@ jobs:
                       ) {
                           move.toggle()
                       }
+                  }
+              }
+          }
+
+          struct SettingsView: View {
+              @EnvironmentObject private var game: CasinoModel
+              @Environment(\.dismiss) private var dismiss
+
+              var body: some View {
+                  NavigationStack {
+                      Form {
+                          Section("Audio") {
+                              Toggle("Sound Effects", isOn: $game.soundEnabled)
+                              Toggle("Background Music", isOn: $game.musicEnabled)
+                          }
+
+                          Section("Device Feedback") {
+                              Toggle("Vibration and Haptics", isOn: $game.vibrationEnabled)
+                          }
+
+                          Section {
+                              Text(
+                                  "Music and sound effects use bundled audio files and do not depend on the iPhone system alert-sound setting."
+                              )
+                              .font(.caption)
+                              .foregroundStyle(.secondary)
+                          }
+                      }
+                      .navigationTitle("Settings")
+                      .toolbar {
+                          ToolbarItem(placement: .topBarTrailing) {
+                              Button("Done") {
+                                  dismiss()
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          struct ConfettiView: View {
+              private let particles = Array(0..<70)
+
+              var body: some View {
+                  TimelineView(.animation) { context in
+                      let elapsed = context.date.timeIntervalSinceReferenceDate
+                      let phase = elapsed.truncatingRemainder(dividingBy: 3.0) / 3.0
+
+                      GeometryReader { geometry in
+                          ZStack {
+                              ForEach(particles, id: \.self) { index in
+                                  let seed = Double(index)
+                                  let x = CGFloat(
+                                      (sin(seed * 12.9898) * 43758.5453)
+                                          .truncatingRemainder(dividingBy: 1)
+                                  )
+                                  let normalizedX = abs(x)
+                                  let speed = 0.75 + Double(index % 7) * 0.08
+                                  let y = CGFloat(
+                                      (phase * speed)
+                                          .truncatingRemainder(dividingBy: 1.15)
+                                  )
+
+                                  RoundedRectangle(cornerRadius: 2)
+                                      .fill(confettiColor(index))
+                                      .frame(
+                                          width: 6 + CGFloat(index % 4),
+                                          height: 10 + CGFloat(index % 5)
+                                      )
+                                      .rotationEffect(
+                                          .degrees(phase * 720 + seed * 23)
+                                      )
+                                      .position(
+                                          x: normalizedX * geometry.size.width,
+                                          y: y * geometry.size.height
+                                      )
+                              }
+                          }
+                      }
+                  }
+                  .ignoresSafeArea()
+              }
+
+              private func confettiColor(_ index: Int) -> Color {
+                  switch index % 6 {
+                  case 0: return .yellow
+                  case 1: return .pink
+                  case 2: return .cyan
+                  case 3: return .green
+                  case 4: return .orange
+                  default: return .purple
                   }
               }
           }
