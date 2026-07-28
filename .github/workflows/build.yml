@@ -139,7 +139,7 @@ jobs:
               var icon: String {
                   switch self {
                   case .slots: return "rectangle.split.3x1.fill"
-                  case .roulette: return "circle.circle.fill"
+                  case .roulette: return "circle.grid.3x3.fill"
                   case .blackjack: return "suit.spade.fill"
                   }
               }
@@ -192,6 +192,8 @@ jobs:
               case black = "Black"
               case even = "Even"
               case odd = "Odd"
+              case low = "1 to 18"
+              case high = "19 to 36"
               case green = "Green 0"
               case number = "Single Number"
 
@@ -260,6 +262,12 @@ jobs:
                   }
               }
 
+              @Published var developerMode: Bool {
+                  didSet {
+                      UserDefaults.standard.set(developerMode, forKey: "developerMode")
+                  }
+              }
+
               @Published var selectedGame: CasinoGame = .slots
 
               @Published var slotReels: [SlotSymbol] = [.seven, .diamond, .bell]
@@ -282,7 +290,7 @@ jobs:
               @Published var rouletteSelectedNumber = 7
               @Published var rouletteWinningNumber: Int?
               @Published var rouletteIsSpinning = false
-              @Published var rouletteMessage = "PLACE YOUR BET"
+              @Published var rouletteMessage = "SELECT A BET"
               @Published var rouletteLastWin = 0
 
               @Published var blackjackPlayerCards: [PlayingCard] = []
@@ -300,7 +308,7 @@ jobs:
               private var blackjackDeck: [PlayingCard] = []
 
               var canStartWager: Bool {
-                  balance >= wager
+                  developerMode || balance >= wager
               }
 
               var playerBlackjackScore: Int {
@@ -313,15 +321,16 @@ jobs:
 
               init() {
                   let defaults = UserDefaults.standard
-                  let storedBalance = defaults.object(forKey: "balance") == nil
+
+                  balance = defaults.object(forKey: "balance") == nil
                       ? 1_000
                       : defaults.integer(forKey: "balance")
-                  let storedWager = defaults.object(forKey: "wager") == nil
+
+                  wager = defaults.object(forKey: "wager") == nil
                       ? 10
                       : defaults.integer(forKey: "wager")
 
-                  balance = storedBalance
-                  wager = storedWager
+                  developerMode = defaults.bool(forKey: "developerMode")
                   slotTotalSpins = defaults.integer(forKey: "slotTotalSpins")
                   slotBiggestWin = defaults.integer(forKey: "slotBiggestWin")
               }
@@ -349,15 +358,9 @@ jobs:
                   slotStopRequested = false
                   slotLastWin = 0
                   slotMessage = "SPINNING - TAP AGAIN TO STOP"
-                  balance -= wager
+                  chargeWager()
 
                   for frame in 0..<34 {
-                      slotReels = [
-                          randomSlotSymbol(),
-                          randomSlotSymbol(),
-                          randomSlotSymbol()
-                      ]
-
                       if slotStopRequested && frame >= 5 {
                           break
                       }
@@ -386,11 +389,28 @@ jobs:
                           slotMessage = "WINNER +$\(payout.formatted())"
                       }
                   } else {
-                      slotMessage = "TRY AGAIN"
+                      slotMessage = developerMode
+                          ? "NO WIN - DEV MODE PROTECTED"
+                          : "TRY AGAIN"
                   }
 
                   slotStopRequested = false
                   slotIsSpinning = false
+              }
+
+              func selectRouletteNumber(_ number: Int) {
+                  guard !rouletteIsSpinning else { return }
+                  rouletteBetType = number == 0 ? .green : .number
+                  rouletteSelectedNumber = number
+                  rouletteMessage = number == 0
+                      ? "BET SELECTED: GREEN 0"
+                      : "BET SELECTED: NUMBER \(number)"
+              }
+
+              func selectRouletteOutsideBet(_ type: RouletteBetType) {
+                  guard !rouletteIsSpinning else { return }
+                  rouletteBetType = type
+                  rouletteMessage = "BET SELECTED: \(type.rawValue.uppercased())"
               }
 
               func spinRoulette() async {
@@ -404,10 +424,10 @@ jobs:
                   rouletteIsSpinning = true
                   rouletteWinningNumber = nil
                   rouletteLastWin = 0
-                  rouletteMessage = "WHEEL SPINNING..."
-                  balance -= wager
+                  rouletteMessage = "ROULETTE SPINNING..."
+                  chargeWager()
 
-                  try? await Task.sleep(nanoseconds: 1_650_000_000)
+                  try? await Task.sleep(nanoseconds: 1_350_000_000)
 
                   let winningNumber = Int.random(in: 0...36)
                   rouletteWinningNumber = winningNumber
@@ -419,7 +439,9 @@ jobs:
                       balance += payout
                       rouletteMessage = "\(rouletteLabel(for: winningNumber)) - WIN +$\(payout.formatted())"
                   } else {
-                      rouletteMessage = "\(rouletteLabel(for: winningNumber)) - NO WIN"
+                      rouletteMessage = developerMode
+                          ? "\(rouletteLabel(for: winningNumber)) - DEV MODE PROTECTED"
+                          : "\(rouletteLabel(for: winningNumber)) - NO WIN"
                   }
 
                   rouletteIsSpinning = false
@@ -433,7 +455,7 @@ jobs:
                       return
                   }
 
-                  balance -= wager
+                  chargeWager()
                   blackjackLastWin = 0
                   blackjackDeck = makeDeck()
                   blackjackPlayerCards = [drawCard(), drawCard()]
@@ -452,7 +474,9 @@ jobs:
                   blackjackPlayerCards.append(drawCard())
 
                   if playerBlackjackScore > 21 {
-                      blackjackMessage = "BUST - DEALER WINS"
+                      blackjackMessage = developerMode
+                          ? "BUST - DEV MODE PROTECTED"
+                          : "BUST - DEALER WINS"
                       blackjackPhase = .finished
                   } else if playerBlackjackScore == 21 {
                       blackjackStand()
@@ -484,6 +508,7 @@ jobs:
               func resetEverything() {
                   balance = 1_000
                   wager = 10
+                  developerMode = false
 
                   slotReels = [.seven, .diamond, .bell]
                   slotIsSpinning = false
@@ -496,6 +521,8 @@ jobs:
                   rouletteWinningNumber = nil
                   rouletteIsSpinning = false
                   rouletteLastWin = 0
+                  rouletteBetType = .red
+                  rouletteSelectedNumber = 7
                   rouletteMessage = "GAME DATA RESET"
 
                   blackjackPlayerCards = []
@@ -519,6 +546,12 @@ jobs:
                   }
 
                   return "\(number) \(isRouletteRed(number) ? "RED" : "BLACK")"
+              }
+
+              private func chargeWager() {
+                  if !developerMode {
+                      balance -= wager
+                  }
               }
 
               private func slotPayout() -> Int {
@@ -573,6 +606,10 @@ jobs:
                       return number != 0 && number.isMultiple(of: 2) ? wager * 2 : 0
                   case .odd:
                       return number != 0 && !number.isMultiple(of: 2) ? wager * 2 : 0
+                  case .low:
+                      return (1...18).contains(number) ? wager * 2 : 0
+                  case .high:
+                      return (19...36).contains(number) ? wager * 2 : 0
                   case .green:
                       return number == 0 ? wager * 36 : 0
                   case .number:
@@ -619,11 +656,15 @@ jobs:
 
               private func resolveImmediateBlackjack() {
                   if dealerBlackjackScore == 21 {
-                      balance += wager
+                      if !developerMode {
+                          balance += wager
+                      }
                       blackjackLastWin = wager
                       blackjackMessage = "PUSH - BOTH HAVE BLACKJACK"
                   } else {
-                      let returnAmount = wager * 5 / 2
+                      let returnAmount = developerMode
+                          ? wager * 3 / 2
+                          : wager * 5 / 2
                       balance += returnAmount
                       blackjackLastWin = returnAmount
                       blackjackMessage = "BLACKJACK! +$\(returnAmount.formatted())"
@@ -637,18 +678,22 @@ jobs:
                   let dealer = dealerBlackjackScore
 
                   if dealer > 21 || player > dealer {
-                      let returnAmount = wager * 2
+                      let returnAmount = developerMode ? wager : wager * 2
                       balance += returnAmount
                       blackjackLastWin = returnAmount
                       blackjackMessage = dealer > 21
                           ? "DEALER BUSTS - YOU WIN"
                           : "YOU WIN"
                   } else if player == dealer {
-                      balance += wager
-                      blackjackLastWin = wager
+                      if !developerMode {
+                          balance += wager
+                      }
+                      blackjackLastWin = developerMode ? 0 : wager
                       blackjackMessage = "PUSH"
                   } else {
-                      blackjackMessage = "DEALER WINS"
+                      blackjackMessage = developerMode
+                          ? "DEALER WINS - DEV MODE PROTECTED"
+                          : "DEALER WINS"
                   }
 
                   blackjackPhase = .finished
@@ -689,6 +734,18 @@ jobs:
                   .sheet(isPresented: $showingAdmin) {
                       AdminView()
                           .environmentObject(game)
+                  }
+                  .overlay(alignment: .topTrailing) {
+                      if game.developerMode {
+                          Text("DEV")
+                              .font(.caption2.weight(.black))
+                              .padding(.horizontal, 9)
+                              .padding(.vertical, 5)
+                              .foregroundStyle(.black)
+                              .background(.yellow, in: Capsule())
+                              .padding(.top, 12)
+                              .padding(.trailing, 12)
+                      }
                   }
                   .onAppear {
                       withAnimation(
@@ -767,6 +824,7 @@ jobs:
                           } label: {
                               VStack(spacing: 4) {
                                   Image(systemName: casinoGame.icon)
+
                                   Text(casinoGame.rawValue)
                                       .font(.caption.bold())
                               }
@@ -809,14 +867,11 @@ jobs:
                               .background(.black.opacity(0.35), in: Capsule())
 
                           HStack(spacing: 9) {
-                              ForEach(
-                                  Array(game.slotReels.enumerated()),
-                                  id: \.offset
-                              ) { index, symbol in
+                              ForEach(0..<3, id: \.self) { index in
                                   RollingReelView(
-                                      symbol: symbol,
+                                      finalSymbol: game.slotReels[index],
                                       spinning: game.slotIsSpinning,
-                                      delay: Double(index) * 0.05
+                                      reelIndex: index
                                   )
                               }
                           }
@@ -907,11 +962,15 @@ jobs:
           struct RouletteView: View {
               @EnvironmentObject private var game: CasinoModel
 
-              @State private var wheelRotation = 0.0
+              private let columns = [
+                  GridItem(.flexible(), spacing: 5),
+                  GridItem(.flexible(), spacing: 5),
+                  GridItem(.flexible(), spacing: 5)
+              ]
 
               var body: some View {
                   ScrollView(showsIndicators: false) {
-                      VStack(spacing: 15) {
+                      VStack(spacing: 14) {
                           Text(game.rouletteMessage)
                               .font(.headline.monospaced().bold())
                               .multilineTextAlignment(.center)
@@ -924,111 +983,42 @@ jobs:
                               .padding(.vertical, 9)
                               .background(.black.opacity(0.35), in: Capsule())
 
-                          ZStack {
-                              Circle()
-                                  .fill(
-                                      AngularGradient(
-                                          colors: [
-                                              .red, .black, .red, .black,
-                                              .red, .black, .green, .black,
-                                              .red, .black, .red, .black
-                                          ],
-                                          center: .center
-                                      )
+                          if let result = game.rouletteWinningNumber {
+                              HStack(spacing: 9) {
+                                  Text("\(result)")
+                                      .font(.system(size: 31, weight: .black))
+
+                                  Text(
+                                      result == 0
+                                          ? "GREEN"
+                                          : game.isRouletteRed(result)
+                                              ? "RED"
+                                              : "BLACK"
                                   )
-                                  .frame(width: 220, height: 220)
-                                  .overlay {
-                                      Circle()
-                                          .stroke(.yellow, lineWidth: 5)
-                                  }
-
-                              Circle()
-                                  .fill(.black)
-                                  .frame(width: 112, height: 112)
-                                  .overlay {
-                                      VStack(spacing: 2) {
-                                          if let number = game.rouletteWinningNumber {
-                                              Text("\(number)")
-                                                  .font(.system(size: 42, weight: .black))
-                                              Text(
-                                                  number == 0
-                                                      ? "GREEN"
-                                                      : game.isRouletteRed(number)
-                                                          ? "RED"
-                                                          : "BLACK"
-                                              )
-                                              .font(.caption.bold())
-                                          } else {
-                                              Image(systemName: "circle.circle.fill")
-                                                  .font(.system(size: 42))
-                                          }
-                                      }
-                                  }
-
-                              Image(systemName: "triangle.fill")
-                                  .font(.title)
-                                  .foregroundStyle(.yellow)
-                                  .rotationEffect(.degrees(180))
-                                  .offset(y: -124)
-                          }
-                          .rotationEffect(.degrees(wheelRotation))
-                          .animation(
-                              game.rouletteIsSpinning
-                                  ? .easeOut(duration: 1.6)
-                                  : .default,
-                              value: wheelRotation
-                          )
-
-                          Picker(
-                              "Roulette bet",
-                              selection: $game.rouletteBetType
-                          ) {
-                              ForEach(RouletteBetType.allCases) { betType in
-                                  Text(betType.rawValue)
-                                      .tag(betType)
+                                  .font(.headline.bold())
                               }
-                          }
-                          .pickerStyle(.menu)
-                          .tint(.cyan)
-                          .padding(.horizontal)
-                          .frame(maxWidth: .infinity)
-                          .padding(.vertical, 10)
-                          .background(
-                              .white.opacity(0.08),
-                              in: RoundedRectangle(cornerRadius: 14)
-                          )
-
-                          if game.rouletteBetType == .number {
-                              VStack(spacing: 8) {
-                                  Text("NUMBER \(game.rouletteSelectedNumber)")
-                                      .font(.headline.bold())
-
-                                  Slider(
-                                      value: Binding(
-                                          get: {
-                                              Double(game.rouletteSelectedNumber)
-                                          },
-                                          set: {
-                                              game.rouletteSelectedNumber = Int($0.rounded())
-                                          }
-                                      ),
-                                      in: 0...36,
-                                      step: 1
-                                  )
-                                  .tint(.cyan)
-                              }
-                              .padding()
+                              .foregroundStyle(.white)
+                              .padding(.horizontal, 20)
+                              .padding(.vertical, 12)
                               .background(
-                                  .white.opacity(0.08),
-                                  in: RoundedRectangle(cornerRadius: 14)
+                                  result == 0
+                                      ? AnyShapeStyle(Color.green)
+                                      : result != 0 && game.isRouletteRed(result)
+                                          ? AnyShapeStyle(Color.red)
+                                          : AnyShapeStyle(Color.black),
+                                  in: Capsule()
                               )
+                              .overlay {
+                                  Capsule()
+                                      .stroke(.yellow, lineWidth: 2)
+                              }
                           }
 
+                          rouletteBoard
+                          outsideBets
                           WagerSelector()
 
                           Button {
-                              wheelRotation += 1_440 + Double.random(in: 0...720)
-
                               Task {
                                   await game.spinRoulette()
                               }
@@ -1059,14 +1049,114 @@ jobs:
                               !game.canStartWager
                           )
 
-                          Text("Single-number and green bets pay 35:1. Red, black, even, and odd pay 1:1.")
+                          Text("Tap a number or outside bet, choose a wager, then spin.")
                               .font(.caption2)
                               .foregroundStyle(.white.opacity(0.45))
-                              .multilineTextAlignment(.center)
                       }
                       .padding(.horizontal, 16)
                       .padding(.bottom, 28)
                   }
+              }
+
+              private var rouletteBoard: some View {
+                  VStack(spacing: 6) {
+                      rouletteNumberButton(0)
+                          .frame(maxWidth: .infinity)
+
+                      LazyVGrid(columns: columns, spacing: 5) {
+                          ForEach(1...36, id: \.self) { number in
+                              rouletteNumberButton(number)
+                          }
+                      }
+                  }
+                  .padding(10)
+                  .background(
+                      Color(red: 0.02, green: 0.27, blue: 0.15),
+                      in: RoundedRectangle(cornerRadius: 18)
+                  )
+                  .overlay {
+                      RoundedRectangle(cornerRadius: 18)
+                          .stroke(.white.opacity(0.25), lineWidth: 1)
+                  }
+              }
+
+              private var outsideBets: some View {
+                  LazyVGrid(columns: columns, spacing: 6) {
+                      outsideBetButton(.low)
+                      outsideBetButton(.even)
+                      outsideBetButton(.red)
+                      outsideBetButton(.black)
+                      outsideBetButton(.odd)
+                      outsideBetButton(.high)
+                  }
+              }
+
+              private func rouletteNumberButton(_ number: Int) -> some View {
+                  let selected =
+                      (number == 0 && game.rouletteBetType == .green) ||
+                      (number != 0 &&
+                       game.rouletteBetType == .number &&
+                       game.rouletteSelectedNumber == number)
+
+                  return Button {
+                      game.selectRouletteNumber(number)
+                  } label: {
+                      Text("\(number)")
+                          .font(.subheadline.weight(.black))
+                          .frame(maxWidth: .infinity)
+                          .frame(height: 36)
+                          .foregroundStyle(.white)
+                          .background(
+                              number == 0
+                                  ? AnyShapeStyle(Color.green)
+                                  : game.isRouletteRed(number)
+                                      ? AnyShapeStyle(Color.red)
+                                      : AnyShapeStyle(Color.black),
+                              in: RoundedRectangle(cornerRadius: 8)
+                          )
+                          .overlay {
+                              RoundedRectangle(cornerRadius: 8)
+                                  .stroke(
+                                      selected ? Color.yellow : Color.white.opacity(0.22),
+                                      lineWidth: selected ? 3 : 1
+                                  )
+                          }
+                          .scaleEffect(selected ? 1.04 : 1)
+                  }
+                  .buttonStyle(.plain)
+                  .disabled(game.rouletteIsSpinning)
+              }
+
+              private func outsideBetButton(_ type: RouletteBetType) -> some View {
+                  let selected = game.rouletteBetType == type
+
+                  return Button {
+                      game.selectRouletteOutsideBet(type)
+                  } label: {
+                      Text(type.rawValue.uppercased())
+                          .font(.caption2.weight(.black))
+                          .frame(maxWidth: .infinity)
+                          .frame(height: 42)
+                          .foregroundStyle(
+                              selected ? Color.black : Color.white
+                          )
+                          .background(
+                              selected
+                                  ? AnyShapeStyle(Color.cyan)
+                                  : type == .red
+                                      ? AnyShapeStyle(Color.red.opacity(0.85))
+                                      : type == .black
+                                          ? AnyShapeStyle(Color.black)
+                                          : AnyShapeStyle(Color.white.opacity(0.09)),
+                              in: RoundedRectangle(cornerRadius: 9)
+                          )
+                          .overlay {
+                              RoundedRectangle(cornerRadius: 9)
+                                  .stroke(.white.opacity(0.18), lineWidth: 1)
+                          }
+                  }
+                  .buttonStyle(.plain)
+                  .disabled(game.rouletteIsSpinning)
               }
           }
 
@@ -1220,11 +1310,9 @@ jobs:
           }
 
           struct RollingReelView: View {
-              let symbol: SlotSymbol
+              let finalSymbol: SlotSymbol
               let spinning: Bool
-              let delay: Double
-
-              @State private var reelOffset: CGFloat = -105
+              let reelIndex: Int
 
               var body: some View {
                   ZStack {
@@ -1240,13 +1328,32 @@ jobs:
                               )
                           )
 
-                      VStack(spacing: 12) {
-                          SlotSymbolView(symbol: symbol)
-                          SlotSymbolView(symbol: nextSymbol)
-                          SlotSymbolView(symbol: symbol)
+                      if spinning {
+                          TimelineView(.animation) { context in
+                              let time = context.date.timeIntervalSinceReferenceDate
+                              let speed = 9.5 + Double(reelIndex) * 2.1
+                              let rawPosition = time * speed
+                              let baseIndex = Int(floor(rawPosition))
+                              let fraction = rawPosition - floor(rawPosition)
+                              let symbols = SlotSymbol.allCases
+                              let current = symbols[
+                                  positiveModulo(baseIndex + reelIndex, symbols.count)
+                              ]
+                              let next = symbols[
+                                  positiveModulo(baseIndex + reelIndex + 1, symbols.count)
+                              ]
+
+                              VStack(spacing: 0) {
+                                  SlotSymbolView(symbol: current)
+                                  SlotSymbolView(symbol: next)
+                              }
+                              .offset(y: CGFloat(-fraction * 96))
+                              .blur(radius: 1.15)
+                          }
+                      } else {
+                          SlotSymbolView(symbol: finalSymbol)
+                              .transition(.scale.combined(with: .opacity))
                       }
-                      .offset(y: spinning ? reelOffset : 0)
-                      .blur(radius: spinning ? 1.6 : 0)
                   }
                   .frame(maxWidth: .infinity)
                   .frame(height: 116)
@@ -1255,32 +1362,12 @@ jobs:
                       RoundedRectangle(cornerRadius: 17)
                           .stroke(.cyan.opacity(0.65), lineWidth: 2)
                   }
-                  .onChange(of: spinning) { _, newValue in
-                      if newValue {
-                          reelOffset = -110
-
-                          withAnimation(
-                              .linear(duration: 0.24)
-                                  .repeatForever(autoreverses: false)
-                                  .delay(delay)
-                          ) {
-                              reelOffset = 110
-                          }
-                      } else {
-                          withAnimation(.spring(response: 0.28)) {
-                              reelOffset = 0
-                          }
-                      }
-                  }
+                  .animation(.spring(response: 0.28), value: spinning)
               }
 
-              private var nextSymbol: SlotSymbol {
-                  let symbols = SlotSymbol.allCases
-                  guard let index = symbols.firstIndex(of: symbol) else {
-                      return .bolt
-                  }
-
-                  return symbols[(index + 1) % symbols.count]
+              private func positiveModulo(_ value: Int, _ modulus: Int) -> Int {
+                  let result = value % modulus
+                  return result >= 0 ? result : result + modulus
               }
           }
 
@@ -1311,7 +1398,8 @@ jobs:
                               .foregroundStyle(symbolColor)
                       }
                   }
-                  .frame(height: 95)
+                  .frame(maxWidth: .infinity)
+                  .frame(height: 96)
               }
 
               private var symbolColor: AnyShapeStyle {
@@ -1539,7 +1627,7 @@ jobs:
                           }
                       } message: {
                           Text(
-                              "This resets the balance, wager, slot statistics, roulette, and blackjack."
+                              "This resets the balance, wager, developer mode, slot statistics, roulette, and blackjack."
                           )
                       }
                   }
@@ -1626,9 +1714,27 @@ jobs:
                               .font(.headline.weight(.black))
                               .tracking(1.5)
 
+                          Toggle(isOn: $game.developerMode) {
+                              VStack(alignment: .leading, spacing: 3) {
+                                  Text("Developer Mode")
+                                      .font(.headline.bold())
+
+                                  Text("Wagers are not deducted. Wins are still credited.")
+                                      .font(.caption)
+                                      .foregroundStyle(.white.opacity(0.55))
+                              }
+                          }
+                          .tint(.yellow)
+                          .padding(16)
+                          .background(
+                              .white.opacity(0.08),
+                              in: RoundedRectangle(cornerRadius: 18)
+                          )
+
                           VStack(spacing: 12) {
                               statusRow("Current balance", "$\(game.balance.formatted())")
                               statusRow("Selected wager", "$\(game.wager.formatted())")
+                              statusRow("Developer mode", game.developerMode ? "ON" : "OFF")
                               statusRow("Slot spins", "\(game.slotTotalSpins)")
                               statusRow("Biggest slot win", "$\(game.slotBiggestWin.formatted())")
                           }
